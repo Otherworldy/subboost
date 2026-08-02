@@ -8,6 +8,8 @@ import {
   HEALTH_CHECK_MAX_DELAY_MIN_MS,
   HEALTH_RESULTS_KEY,
   filterNodesByHealth,
+  getFreshNodeHealthResults,
+  getHealthCheckCacheConfigKey,
   getNodeHealthResults,
   isNodeVisibleToDownstream,
   normalizeHealthCheckUrl,
@@ -91,6 +93,19 @@ describe("resolveSourceHealthCheck", () => {
     expect(resolveSourceHealthCheck(undefined)).toEqual({ ...DEFAULT_HEALTH_CHECK, enabled: false });
   });
 
+  it("uses probe settings but not the automatic switch in cache keys", () => {
+    const enabled = { healthCheck: { enabled: true, maxDelayMs: 1200 } };
+    const disabled = { healthCheck: { enabled: false, maxDelayMs: 1200 } };
+    const changed = { healthCheck: { enabled: true, maxDelayMs: 1300 } };
+    const changedUrl = { healthCheck: { enabled: true, maxDelayMs: 1200, url: "https://example.com/ping" } };
+    const changedConcurrency = { healthCheck: { enabled: true, maxDelayMs: 1200, concurrency: 8 } };
+
+    expect(getHealthCheckCacheConfigKey(enabled)).toBe(getHealthCheckCacheConfigKey(disabled));
+    expect(getHealthCheckCacheConfigKey(enabled)).not.toBe(getHealthCheckCacheConfigKey(changed));
+    expect(getHealthCheckCacheConfigKey(enabled)).not.toBe(getHealthCheckCacheConfigKey(changedUrl));
+    expect(getHealthCheckCacheConfigKey(enabled)).not.toBe(getHealthCheckCacheConfigKey(changedConcurrency));
+  });
+
   it("applies partial overrides", () => {
     expect(
       resolveSourceHealthCheck({
@@ -116,6 +131,33 @@ describe("node health results", () => {
       b: { status: "fail", checkedAt: "2026-01-01T00:00:00.000Z" },
       e: { status: "ok", checkedAt: "2026-01-01T00:00:00.000Z" },
     });
+  });
+
+  it("reuses only results inside the short cache window", () => {
+    const now = Date.parse("2026-01-01T00:01:00.000Z");
+    const nodes = [
+      node({
+        name: "fresh",
+        [HEALTH_RESULTS_KEY]: {
+          a: { status: "ok", delayMs: 10, checkedAt: "2026-01-01T00:00:59.000Z" },
+        },
+      }),
+      node({
+        name: "expired",
+        [HEALTH_RESULTS_KEY]: {
+          a: { status: "fail", checkedAt: "2026-01-01T00:00:00.000Z" },
+        },
+      }),
+      node({
+        name: "future",
+        [HEALTH_RESULTS_KEY]: {
+          a: { status: "ok", checkedAt: "2026-01-01T00:01:01.000Z" },
+        },
+      }),
+    ];
+
+    expect([...getFreshNodeHealthResults(nodes, "a", now).keys()]).toEqual(["fresh"]);
+    expect(getFreshNodeHealthResults(nodes, "other", now).size).toBe(0);
   });
 
   it("writes per-source results without dropping other sources", () => {

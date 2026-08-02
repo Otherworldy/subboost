@@ -1,14 +1,19 @@
 import { randomBytes, randomUUID } from "node:crypto";
+import { buildNodeContentKey } from "@subboost/core/node-identity";
 import { generateClashYaml } from "@subboost/core/generator";
 import { buildGenerateOptionsFromConfig, getEffectiveTestOptions } from "@subboost/core/subscription/config-utils";
 import { buildProxyProvidersFromConfig } from "@subboost/core/subscription/proxy-providers";
 import {
   applyNodeHealthResults,
   filterNodesByHealth,
+  getFreshNodeHealthResults,
+  getHealthCheckCacheConfigKey,
   getNodeHealthResults,
+  getNodeHealthSourceDescriptors,
   HEALTH_RESULTS_KEY,
   resolveSourceHealthCheck,
   summarizeNodeHealth,
+  withoutNodeHealthResultsForSources,
   type NodeHealthResult,
 } from "@subboost/core/subscription/node-health";
 import { getNodeSourceIds } from "@subboost/core/subscription/node-source-state";
@@ -143,6 +148,38 @@ function buildLocalSubscriptionConfig(
       defaultSmartNodeMatchingEnabled: true,
     }
   );
+}
+
+function stripHealthResultsForChangedSources(
+  nodes: ParsedNode[],
+  previousConfig: Record<string, unknown>,
+  nextConfig: Record<string, unknown>
+): ParsedNode[] {
+  const previous = new Map(getNodeHealthSourceDescriptors(previousConfig).map((source) => [source.id, source]));
+  const next = new Map(getNodeHealthSourceDescriptors(nextConfig).map((source) => [source.id, source]));
+  const changed = new Set<string>();
+  for (const id of new Set([...previous.keys(), ...next.keys()])) {
+    const previousSource = previous.get(id);
+    const nextSource = next.get(id);
+    if (
+      !previousSource ||
+      !nextSource ||
+      getHealthCheckCacheConfigKey(previousSource) !== getHealthCheckCacheConfigKey(nextSource)
+    ) {
+      changed.add(id);
+    }
+  }
+  if (changed.size === 0) return nodes;
+  return nodes.map((node) => withoutNodeHealthResultsForSources(node, changed));
+}
+
+function stripHealthResultsForChangedNodes(nodes: ParsedNode[], previousNodes: ParsedNode[]): ParsedNode[] {
+  const previousByName = new Map(previousNodes.map((node) => [node.name, node]));
+  return nodes.map((node) => {
+    const previous = previousByName.get(node.name);
+    if (previous && buildNodeContentKey(previous) === buildNodeContentKey(node)) return node;
+    return withoutNodeHealthResultsForSources(node, getNodeSourceIds(node));
+  });
 }
 
 function assertNodeNameFilterKeepsOutput(
@@ -288,7 +325,12 @@ export async function updateSubscription(
     data.encryptedSubscriptionInfo = encryptJson(normalizeSubscriptionInfoForPersistence(body.subscriptionInfo) ?? {});
   }
 
-  let nodesWithHealth = nextNodes;
+  let nodesWithHealth = hasNodes
+    ? stripHealthResultsForChangedNodes(nextNodes, currentSecrets.nodes)
+    : nextNodes;
+  if (hasConfig) {
+    nodesWithHealth = stripHealthResultsForChangedSources(nodesWithHealth, currentSecrets.config, nextConfig);
+  }
   if (hasUrls || hasNodes || hasConfig) {
     const nextUrls = hasUrls ? normalizeSubscriptionUrlList(body.urls) : currentSecrets.urls;
     if (nextUrls.length === 0 && nextNodes.length === 0) {
@@ -296,7 +338,7 @@ export async function updateSubscription(
     }
     // 开启自动测活的源：保存前立即测活，结果随节点一起持久化；内核系统性失败则不更新
     nodesWithHealth = await runSubscriptionHealthChecks(
-      nextNodes,
+      nodesWithHealth,
       (nextConfig.sources ?? []) as SavedSource[],
       onProgress
     );
@@ -405,13 +447,16 @@ async function runSubscriptionHealthChecks(
   onProgress?: (tested: number, total: number) => void
 ): Promise<ParsedNode[]> {
   let next = nodes;
+  const now = Date.now();
   let tested = 0;
   let total = 0;
   for (const source of sources) {
     if (source.type === "url" && source.useProxyProviders) continue;
     const config = resolveSourceHealthCheck(source);
     if (!config.enabled) continue;
-    total += next.filter((node) => getNodeSourceIds(node).includes(source.id)).length;
+    const sourceNodes = next.filter((node) => getNodeSourceIds(node).includes(source.id));
+    const cached = getFreshNodeHealthResults(sourceNodes, source.id, now);
+    total += sourceNodes.filter((node) => !cached.has(node.name)).length;
   }
   if (total > 0 && onProgress) onProgress(0, total);
   for (const source of sources) {
@@ -419,9 +464,11 @@ async function runSubscriptionHealthChecks(
     const config = resolveSourceHealthCheck(source);
     if (!config.enabled) continue;
     const sourceNodes = next.filter((node) => getNodeSourceIds(node).includes(source.id));
-    if (sourceNodes.length === 0) continue;
+    const cached = getFreshNodeHealthResults(sourceNodes, source.id, now);
+    const pendingNodes = sourceNodes.filter((node) => !cached.has(node.name));
+    if (pendingNodes.length === 0) continue;
     const results = await runMihomoHealthCheck({
-      nodes: sourceNodes,
+      nodes: pendingNodes,
       config,
       ...(onProgress
         ? {

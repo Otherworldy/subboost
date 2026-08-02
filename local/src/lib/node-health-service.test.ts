@@ -65,6 +65,46 @@ describe("runNodeHealthChecks", () => {
     expect(result.nodes.map((item) => item.name).sort()).toEqual(["B", "C"]);
   });
 
+  it("reuses fresh per-source results and probes only cache misses", async () => {
+    const checkedAt = new Date().toISOString();
+    const cachedNodes = [
+      { ...nodes[0], _health: { s1: { status: "ok", delayMs: 12, checkedAt } } },
+      nodes[1],
+    ];
+
+    const result = await runNodeHealthChecks({
+      nodes: cachedNodes,
+      sources,
+      scope: { kind: "source", sourceId: "s1" },
+    });
+
+    expect(mocks.runMihomoHealthCheck).toHaveBeenCalledTimes(1);
+    expect(mocks.runMihomoHealthCheck.mock.calls[0][0].nodes.map((item: { name: string }) => item.name)).toEqual(["B"]);
+    expect(result.nodes.find((item) => item.name === "A")?.health.s1).toMatchObject({ delayMs: 12 });
+  });
+
+  it("returns only the requested sources instead of sibling history", async () => {
+    const scopedNodes = [
+      nodes[0],
+      {
+        ...nodes[1],
+        _health: { s1: { status: "ok", delayMs: 12, checkedAt: new Date().toISOString() } },
+      },
+      nodes[2],
+    ];
+
+    const result = await runNodeHealthChecks({
+      nodes: scopedNodes,
+      sources,
+      scope: { kind: "source", sourceId: "s2" },
+    });
+
+    expect(result.nodes.find((item) => item.name === "B")?.health).toEqual({
+      s2: expect.objectContaining({ status: "ok" }),
+    });
+    expect(result.summary).toEqual({ tested: 2, ok: 2, fail: 0, unsupported: 0 });
+  });
+
   it("rejects unknown sources and nodes", async () => {
     await expect(
       runNodeHealthChecks({ nodes, sources, scope: { kind: "source", sourceId: "ghost" } })

@@ -265,7 +265,7 @@ export function useEditingSubscriptionLoader({
               ...(typeof s.nameTemplate === "string" && s.nameTemplate.trim() ? { nameTemplate: s.nameTemplate.trim() } : {}),
               ...(hasSubscriptionUserInfo(s.subscriptionUserInfo) ? { subscriptionUserInfo: s.subscriptionUserInfo } : {}),
               ...(s.type === "url" && s.useProxyProviders ? { useProxyProviders: true } : {}),
-              ...(normalizeSourceHealthCheck(s.healthCheck) ?? {}),
+              ...(s.healthCheck ? { healthCheck: s.healthCheck } : {}),
               ...(s.type === "url" && typeof s.userinfoUrl === "string" && s.userinfoUrl.trim()
                 ? { userinfoUrl: tryNormalizeSubscriptionUrlInput(s.userinfoUrl) ?? s.userinfoUrl.trim() }
                 : {}),
@@ -318,6 +318,7 @@ export function useEditingSubscriptionLoader({
 
           return current.map((s) => {
             const subscriptionUserInfo = normalizeSubscriptionUserInfo(s.subscriptionUserInfo);
+            const healthCheck = normalizeSourceHealthCheck(s.healthCheck);
             return {
               id: s.id,
               type: s.type,
@@ -326,7 +327,7 @@ export function useEditingSubscriptionLoader({
               ...(typeof s.nameTemplate === "string" && s.nameTemplate.trim() ? { nameTemplate: s.nameTemplate.trim() } : {}),
               ...(hasSubscriptionUserInfo(subscriptionUserInfo) ? { subscriptionUserInfo } : {}),
               ...(s.type === "url" && s.useProxyProviders ? { useProxyProviders: true } : {}),
-              ...(normalizeSourceHealthCheck(s.healthCheck) ?? {}),
+              ...(healthCheck ? { healthCheck } : {}),
               ...(s.type === "url" && typeof s.userinfoUrl === "string" && s.userinfoUrl.trim()
                 ? { userinfoUrl: tryNormalizeSubscriptionUrlInput(s.userinfoUrl) ?? s.userinfoUrl.trim() }
                 : {}),

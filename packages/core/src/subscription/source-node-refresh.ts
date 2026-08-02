@@ -1,6 +1,7 @@
 import { formatNodeNameFromTemplate } from "../node-name-template";
 import { buildNodeContentKey, buildScopedNodeIdentityKey } from "../node-identity";
 import { stripImportedNodeControlFields } from "./imported-node-controls";
+import { HEALTH_RESULTS_KEY } from "./node-health";
 import {
   getNodeOriginName,
   getNodeSourceIds,
@@ -284,9 +285,14 @@ export function mergeParsedSourceNodes(
   }): ParsedNode => {
     const storedRecord = params.stored as unknown as Record<string, unknown>;
     const freshRecord = params.fresh as unknown as Record<string, unknown>;
+    const preserveHealth = buildNodeContentKey(params.stored) === buildNodeContentKey(params.fresh);
     const preservedExtra = Object.fromEntries(
       Object.entries(storedRecord).filter(
-        ([key]) => key.startsWith("_") && key !== ORIGIN_NAME_KEY && key !== SOURCE_IDS_KEY
+        ([key]) =>
+          key.startsWith("_") &&
+          key !== ORIGIN_NAME_KEY &&
+          key !== SOURCE_IDS_KEY &&
+          (key !== HEALTH_RESULTS_KEY || preserveHealth)
       )
     );
 

@@ -324,6 +324,82 @@ describe("local subscription service", () => {
     expect(mocks.runMihomoHealthCheck).toHaveBeenCalledTimes(4);
   });
 
+  it("reuses fresh health results on save and invalidates them when settings change", async () => {
+    const checkedAt = new Date().toISOString();
+    const healthSource = {
+      id: "s1",
+      type: "nodes",
+      content: "trojan://secret@example.com:443#Node",
+      healthCheck: { enabled: true, maxDelayMs: 1500 },
+    };
+    const cachedNode = {
+      ...node("Cached"),
+      _sourceIds: ["s1"],
+      _health: { s1: { status: "ok", delayMs: 20, checkedAt } },
+    };
+
+    await createSubscription("owner-1", {
+      name: "Cached health",
+      nodes: [cachedNode],
+      config: { sources: [healthSource] },
+    });
+    expect(mocks.runMihomoHealthCheck).not.toHaveBeenCalled();
+    expect(mocks.prisma.subscription.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ encryptedNodes: expect.stringContaining('"_health"') }),
+      })
+    );
+
+    mocks.prisma.subscription.findFirst.mockResolvedValueOnce(
+      row({
+        encryptedNodes: JSON.stringify([cachedNode]),
+        encryptedConfig: JSON.stringify({ sources: [healthSource] }),
+      })
+    );
+    await updateSubscription("owner-1", "sub-1", {
+      config: {
+        sources: [
+          {
+            ...healthSource,
+            healthCheck: { enabled: true, maxDelayMs: 2000 },
+          },
+        ],
+      },
+    });
+
+    expect(mocks.runMihomoHealthCheck).toHaveBeenCalledTimes(1);
+    expect(mocks.runMihomoHealthCheck).toHaveBeenCalledWith(
+      expect.objectContaining({ nodes: [expect.objectContaining({ name: "Cached" })] })
+    );
+
+    mocks.runMihomoHealthCheck.mockClear();
+    mocks.prisma.subscription.findFirst.mockResolvedValueOnce(
+      row({
+        encryptedNodes: JSON.stringify([cachedNode]),
+        encryptedConfig: JSON.stringify({ sources: [healthSource] }),
+      })
+    );
+    await updateSubscription("owner-1", "sub-1", {
+      nodes: [{ ...cachedNode, server: "changed.example.com" }],
+    });
+    expect(mocks.runMihomoHealthCheck).toHaveBeenCalledWith(
+      expect.objectContaining({ nodes: [expect.objectContaining({ server: "changed.example.com" })] })
+    );
+
+    mocks.runMihomoHealthCheck.mockClear();
+    const disabledSource = { ...healthSource, healthCheck: { enabled: false, maxDelayMs: 1500 } };
+    mocks.prisma.subscription.findFirst.mockResolvedValueOnce(
+      row({
+        encryptedNodes: JSON.stringify([cachedNode]),
+        encryptedConfig: JSON.stringify({ sources: [disabledSource] }),
+      })
+    );
+    await updateSubscription("owner-1", "sub-1", {
+      config: { sources: [healthSource] },
+    });
+    expect(mocks.runMihomoHealthCheck).not.toHaveBeenCalled();
+  });
+
   it("refreshes subscriptions with health callbacks wired through", async () => {
     mocks.refreshNodeSnapshot.mockResolvedValueOnce({
       nodes: [node("Fresh")],

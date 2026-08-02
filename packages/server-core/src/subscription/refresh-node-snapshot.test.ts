@@ -95,6 +95,37 @@ describe("refreshNodeSnapshot", () => {
     });
   });
 
+  it("reuses fresh health results during subscription refresh", async () => {
+    const checkedAt = new Date().toISOString();
+    const runHealthCheck = vi.fn(async () => new Map());
+    const result = await refreshNodeSnapshot({
+      config: {
+        sources: [
+          {
+            id: "url-src",
+            type: "url",
+            content: "https://example.com/sub",
+            healthCheck: { enabled: true },
+          },
+        ],
+      },
+      urls: [],
+      storedNodes: [
+        {
+          ...node,
+          _originName: node.name,
+          [SOURCE_IDS_KEY]: ["url-src"],
+          _health: { "url-src": { status: "ok", delayMs: 30, checkedAt } },
+        } as unknown as ParsedNode,
+      ],
+      fetchUrlNodes: async () => ({ ok: true, nodes: [node], headers: {} }),
+      runHealthCheck,
+    });
+
+    expect(runHealthCheck).not.toHaveBeenCalled();
+    expect(result.nodes[0]).toHaveProperty("_health.url-src.delayMs", 30);
+  });
+
   it("skips health checks for disabled or proxy-provider sources", async () => {
     const runHealthCheck = vi.fn(async () => new Map());
     const result = await refreshNodeSnapshot({

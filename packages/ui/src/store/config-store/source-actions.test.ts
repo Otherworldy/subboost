@@ -87,6 +87,50 @@ describe("createSourceActions", () => {
     expect(getState().nodes.map((item: ParsedNode) => item.name)).toEqual(["Existing"]);
   });
 
+  it("invalidates cached health when source health settings change", () => {
+    const existing = source({
+      id: "s1",
+      type: "yaml",
+      content: "proxies: []",
+      healthCheck: { enabled: true, maxDelayMs: 1000 },
+    });
+    const next = { ...existing, healthCheck: { enabled: true, maxDelayMs: 2000 } };
+    const { actions, getState } = createHarness({
+      sources: [existing],
+      nodes: [
+        node("Cached", {
+          _sourceIds: ["s1"],
+          _health: { s1: { status: "ok", delayMs: 10, checkedAt: new Date().toISOString() } },
+        }),
+      ],
+    });
+
+    actions.setSources([next]);
+
+    expect(getState().sources).toEqual([next]);
+    expect(getState().nodes[0]).not.toHaveProperty("_health");
+  });
+
+  it("keeps cached health when only the automatic switch changes", () => {
+    const existing = source({
+      id: "s1",
+      type: "yaml",
+      content: "proxies: []",
+      healthCheck: { enabled: true, maxDelayMs: 1000 },
+    });
+    const next = { ...existing, healthCheck: { enabled: false, maxDelayMs: 1000 } };
+    const health = { s1: { status: "ok", delayMs: 10, checkedAt: new Date().toISOString() } };
+    const { actions, getState } = createHarness({
+      sources: [existing],
+      nodes: [node("Cached", { _sourceIds: ["s1"], _health: health })],
+    });
+
+    actions.setSources([next]);
+
+    expect(getState().sources).toEqual([next]);
+    expect(getState().nodes[0]).toHaveProperty("_health", health);
+  });
+
   it("parses pasted content, deduplicates existing nodes, and respects deleted origins", () => {
     mocks.parseSubscription.mockReturnValueOnce(
       parseResult(

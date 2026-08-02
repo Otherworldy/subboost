@@ -313,6 +313,52 @@ describe("useEditingSubscriptionLoader", () => {
     expect(options.setCopied).toHaveBeenCalledWith(false);
   });
 
+  it("restores persisted automatic health-check settings", async () => {
+    const options = makeOptions({
+      loadSubscription: vi.fn(async () =>
+        response(200, {
+          subscription: {
+            id: "sub-1",
+            token: "token-1",
+            name: "Health",
+            urls: [],
+            nodes: [node("Health Node", { _sourceIds: ["health-source"] })],
+            config: {
+              sources: [
+                {
+                  id: "health-source",
+                  type: "yaml",
+                  content: "proxies: []",
+                  healthCheck: {
+                    enabled: true,
+                    url: "https://example.com/ping",
+                    maxDelayMs: 1200,
+                    concurrency: 8,
+                  },
+                },
+              ],
+            },
+          },
+        })
+      ),
+    });
+
+    useEditingSubscriptionLoader(options);
+    await flushAsync();
+
+    expect(options.setStoreSources).toHaveBeenCalledWith([
+      expect.objectContaining({
+        id: "health-source",
+        healthCheck: {
+          enabled: true,
+          url: "https://example.com/ping",
+          maxDelayMs: 1200,
+          concurrency: 8,
+        },
+      }),
+    ]);
+  });
+
   it("falls back to URL sources when config sources are absent", async () => {
     const options = makeOptions({
       loadSubscription: vi.fn(async () =>

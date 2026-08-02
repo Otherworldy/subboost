@@ -19,6 +19,7 @@ export const HEALTH_CHECK_MAX_DELAY_MIN_MS = 100;
 export const HEALTH_CHECK_MAX_DELAY_MAX_MS = 60000;
 export const HEALTH_CHECK_CONCURRENCY_MIN = 1;
 export const HEALTH_CHECK_CONCURRENCY_MAX = 100;
+export const HEALTH_CHECK_CACHE_TTL_MS = 60 * 1000;
 
 export type NodeHealthStatus = "ok" | "fail" | "unsupported";
 
@@ -102,6 +103,13 @@ export function resolveSourceHealthCheck(source?: {
   };
 }
 
+export function getHealthCheckCacheConfigKey(source?: {
+  healthCheck?: SourceHealthCheckConfig;
+}): string {
+  const { url, maxDelayMs, concurrency } = resolveSourceHealthCheck(source);
+  return `${url}\u0000${maxDelayMs}\u0000${concurrency}`;
+}
+
 export function getNodeHealthResults(node: ParsedNode): Record<string, NodeHealthResult> {
   const record = node as unknown as Record<string, unknown>;
   const raw = record[HEALTH_RESULTS_KEY];
@@ -123,6 +131,23 @@ export function getNodeHealthResults(node: ParsedNode): Record<string, NodeHealt
     };
   }
   return out;
+}
+
+/** 仅复用短时间内同一来源的结果，避免重复启动 mihomo。 */
+export function getFreshNodeHealthResults(
+  nodes: ReadonlyArray<ParsedNode>,
+  sourceId: string,
+  now = Date.now()
+): Map<string, NodeHealthResult> {
+  const results = new Map<string, NodeHealthResult>();
+  for (const node of nodes) {
+    const result = getNodeHealthResults(node)[sourceId];
+    if (!result) continue;
+    const checkedAt = Date.parse(result.checkedAt);
+    if (!Number.isFinite(checkedAt) || checkedAt > now || now - checkedAt >= HEALTH_CHECK_CACHE_TTL_MS) continue;
+    results.set(node.name, result);
+  }
+  return results;
 }
 
 export function withNodeHealthResult(

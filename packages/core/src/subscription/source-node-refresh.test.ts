@@ -155,6 +155,33 @@ describe("source node refresh helpers", () => {
     expect(Array.from(result.renameMap.entries())).toEqual([["[Old]Alpha", "[New]Alpha"]]);
   });
 
+  it("preserves cached health only when refreshed node content is unchanged", () => {
+    const cached = {
+      source: { status: "ok", delayMs: 20, checkedAt: new Date().toISOString() },
+    };
+    const stored = ssNode("Alpha", {
+      [ORIGIN_NAME_KEY]: "Alpha",
+      [SOURCE_IDS_KEY]: ["source"],
+      _health: cached,
+    });
+
+    const unchanged = mergeParsedSourceNodes(
+      [stored],
+      prepareSourceParsedNodes([ssNode("Alpha")], {}),
+      [],
+      { sourceId: "source" }
+    );
+    const changed = mergeParsedSourceNodes(
+      [stored],
+      prepareSourceParsedNodes([ssNode("Alpha", { server: "new.example.com" })], {}),
+      [],
+      { sourceId: "source" }
+    );
+
+    expect(unchanged.nodes[0]).toHaveProperty("_health", cached);
+    expect(changed.nodes[0]).not.toHaveProperty("_health");
+  });
+
   it("can refresh as a new source without treating old display names as manual renames", () => {
     const parsedNodes = prepareSourceParsedNodes([ssNode("Alpha")], {
       currentTag: "New",

@@ -22,6 +22,10 @@ import {
 } from "@subboost/core/subscription/import-error";
 import { stripImportedNodeControlFieldsFromList } from "@subboost/core/subscription/imported-node-controls";
 import { tryNormalizeSubscriptionUrlInput } from "@subboost/core/subscription/url-input";
+import {
+  getHealthCheckCacheConfigKey,
+  withoutNodeHealthResultsForSources,
+} from "@subboost/core/subscription/node-health";
 import type { ConfigActions, SubscriptionSource } from "./definitions";
 import {
   fetchUrlContentInBrowser,
@@ -95,16 +99,30 @@ export function createSourceActions(set: SetState, get: GetState, setAndGenerate
       const prevIds = new Set(prev.map((s) => s.id));
       const nextIds = new Set(sources.map((s) => s.id));
       const removed = new Set(Array.from(prevIds).filter((id) => !nextIds.has(id)));
+      const prevById = new Map(prev.map((source) => [source.id, source]));
+      const changedHealthConfig = new Set(
+        sources
+          .filter((source) => {
+            const previous = prevById.get(source.id);
+            return Boolean(
+              previous &&
+              getHealthCheckCacheConfigKey(previous) !== getHealthCheckCacheConfigKey(source)
+            );
+          })
+          .map((source) => source.id)
+      );
 
-      if (removed.size === 0) {
+      if (removed.size === 0 && changedHealthConfig.size === 0) {
         set({ sources });
         return;
       }
 
+      const staleHealthSourceIds = new Set([...removed, ...changedHealthConfig]);
       setAndGenerateConfig((state) => {
         const nextNodes: ParsedNode[] = [];
         for (const node of state.nodes) {
-          const next = withoutNodeSourceIds(node, removed);
+          const withoutStaleHealth = withoutNodeHealthResultsForSources(node, staleHealthSourceIds);
+          const next = withoutNodeSourceIds(withoutStaleHealth, removed);
           if (next) nextNodes.push(next);
         }
 
