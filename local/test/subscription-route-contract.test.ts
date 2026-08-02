@@ -85,6 +85,14 @@ async function readJson(response: Response): Promise<Record<string, unknown>> {
   return (await response.json()) as Record<string, unknown>;
 }
 
+async function readNdjson(response: Response) {
+  const text = await response.text();
+  return text
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(getCurrentAdmin).mockResolvedValue(admin);
@@ -109,6 +117,7 @@ beforeEach(() => {
     ok: true,
     body: { subscriptionId: "sub-1", nodeCount: 1 },
   } as never);
+  vi.mocked(getSubscription).mockResolvedValue(subscription as never);
   vi.mocked(updateSubscription).mockResolvedValue({ subscription: { ...subscription, name: "Renamed" }, nodes: [] } as never);
 });
 
@@ -120,9 +129,11 @@ describe("local subscription routes", () => {
     expect(listSubscriptions).toHaveBeenCalledWith("admin-1");
 
     const createResponse = await pluralCollectionRoute.POST(jsonRequest("http://local.test/api/subscriptions", fullConfigPayload));
-    expect(createResponse.status).toBe(201);
-    expect(await readJson(createResponse)).toEqual({ subscription, nodes: [] });
-    expect(createSubscription).toHaveBeenCalledWith("admin-1", fullConfigPayload);
+    expect(createResponse.status).toBe(200);
+    expect(await readNdjson(createResponse)).toEqual([
+      { type: "complete", value: { subscription, nodes: [] } },
+    ]);
+    expect(createSubscription).toHaveBeenCalledWith("admin-1", fullConfigPayload, expect.any(Function));
   });
 
   it("rejects subscription bodies above 16 MiB", async () => {
@@ -151,11 +162,11 @@ describe("local subscription routes", () => {
       params
     );
     expect(updateResponse.status).toBe(200);
-    expect(updateSubscription).toHaveBeenCalledWith("admin-1", "sub-1", { ...fullConfigPayload, name: "Renamed" });
+    expect(updateSubscription).toHaveBeenCalledWith("admin-1", "sub-1", { ...fullConfigPayload, name: "Renamed" }, expect.any(Function));
 
     const refreshResponse = await pluralRefreshRoute.POST(new Request("http://local.test/api/subscriptions/sub-1/refresh"), params);
     expect(refreshResponse.status).toBe(200);
-    expect(refreshSubscription).toHaveBeenCalledWith("admin-1", "sub-1");
+    expect(refreshSubscription).toHaveBeenCalledWith("admin-1", "sub-1", expect.any(Function));
   });
 
   it("serves YAML through the plural token route only", async () => {

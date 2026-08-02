@@ -67,8 +67,14 @@ export type RefreshNodeSnapshotOptions = {
   storedNodes: ParsedNode[];
   fetchUrlNodes: (source: SavedSource) => Promise<UrlNodeFetchResult>;
   fetchUrlUserInfo?: (source: SavedSource) => Promise<Record<string, string> | undefined>;
-  // 自动测活：返回按节点名（订阅状态内唯一）的测活结果；未提供或源未开启时跳过
-  runHealthCheck?: (params: { source: SavedSource; nodes: ParsedNode[] }) => Promise<Map<string, NodeHealthResult>>;
+  // 自动测活：返回按节点名（订阅状态内唯一）的测活结果；未提供或源未开启时跳过。
+  // onResult 在单个节点出结果时回调（用于流式进度）；onHealthProgress 汇总 tested/total。
+  runHealthCheck?: (params: {
+    source: SavedSource;
+    nodes: ParsedNode[];
+    onResult?: (nodeName: string, result: NodeHealthResult) => void;
+  }) => Promise<Map<string, NodeHealthResult>>;
+  onHealthProgress?: (tested: number, total: number) => void;
 };
 
 export type RefreshNodeSnapshotResult = {
@@ -179,12 +185,24 @@ export async function refreshNodeSnapshot(
 
   // 对开启自动测活的源执行测活并把结果按来源写回节点；节点内容在合并时已刷新，
   // 内容变化的节点不带旧结果，因此不存在过期结果残留。
+  // 进度口径：total 随已开始的源累计（刷新过程中才知道各源节点数），tested 单调递增。
+  let healthTested = 0;
+  let healthTotal = 0;
   const runSourceHealthCheck = async (source: SavedSource) => {
     if (!resolveSourceHealthCheck(source).enabled) return;
     if (typeof options.runHealthCheck !== "function") return;
     const sourceNodes = currentNodes.filter((node) => getNodeSourceIds(node).includes(source.id));
     if (sourceNodes.length === 0) return;
-    const results = await options.runHealthCheck({ source, nodes: sourceNodes });
+    healthTotal += sourceNodes.length;
+    options.onHealthProgress?.(healthTested, healthTotal);
+    const results = await options.runHealthCheck({
+      source,
+      nodes: sourceNodes,
+      onResult: () => {
+        healthTested += 1;
+        options.onHealthProgress?.(healthTested, healthTotal);
+      },
+    });
     currentNodes = applyNodeHealthResults(currentNodes, source.id, results);
   };
 

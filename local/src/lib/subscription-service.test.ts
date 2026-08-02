@@ -666,7 +666,7 @@ describe("local subscription service", () => {
 
     await expect(refreshSubscription("owner-1", "sub-1")).resolves.toEqual({
       ok: true,
-      body: { ok: true, nodeCount: 1 },
+      body: { ok: true, nodeCount: 1, healthStats: { tested: 0, ok: 0, fail: 0, unsupported: 0 } },
     });
     expect(mocks.prisma.$transaction).toHaveBeenCalled();
 

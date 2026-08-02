@@ -22,6 +22,7 @@ import { UnsavedPrompt } from "@subboost/ui/product/home/unsaved-prompt";
 import { VisualGraph } from "@subboost/ui/product/preview/visual-graph";
 import { YamlHighlight } from "@subboost/ui/product/preview/diff-highlight";
 import { SubscriptionLinkDialog } from "@subboost/ui/product/home/subscription-link-dialog";
+import type { SubscriptionSaveProgress } from "@subboost/ui/product/home/use-subscription-link";
 import { artisticTabsIconClassName, artisticTabsListClassName, artisticTabsTriggerClassName } from "@subboost/ui/components/ui/artistic-nav";
 import { useProductInteractionAdapter, type ProductMode } from "@subboost/ui/product/interactions";
 import { cn } from "@subboost/ui/lib/utils";
@@ -50,6 +51,7 @@ type SubscriptionLinkState = {
   smartNodeMatchingEnabled: boolean;
   setSmartNodeMatchingEnabled: (value: boolean) => void;
   isCreatingSubscription: boolean;
+  saveProgress: SubscriptionSaveProgress | null;
   copied: boolean;
   saveRequirementDialog: boolean;
   setSaveRequirementDialog: (open: boolean) => void;
@@ -403,6 +405,7 @@ export function HomeLayout({
         smartNodeMatchingEnabled={subscription.smartNodeMatchingEnabled}
         setSmartNodeMatchingEnabled={subscription.setSmartNodeMatchingEnabled}
         isCreatingSubscription={subscription.isCreatingSubscription}
+        saveProgress={subscription.saveProgress}
         copied={subscription.copied}
         isEditingExistingSubscription={subscription.isEditingExistingSubscription}
         handleCopyUrl={subscription.handleCopyUrl}

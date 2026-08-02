@@ -5,8 +5,10 @@ import { buildProxyProvidersFromConfig } from "@subboost/core/subscription/proxy
 import {
   applyNodeHealthResults,
   filterNodesByHealth,
+  getNodeHealthResults,
   HEALTH_RESULTS_KEY,
   resolveSourceHealthCheck,
+  summarizeNodeHealth,
   type NodeHealthResult,
 } from "@subboost/core/subscription/node-health";
 import { getNodeSourceIds } from "@subboost/core/subscription/node-source-state";
@@ -213,7 +215,8 @@ export async function listSubscriptions(ownerId: string): Promise<SubscriptionSu
 
 export async function createSubscription(
   ownerId: string,
-  body: unknown
+  body: unknown,
+  onProgress?: (tested: number, total: number) => void
 ): Promise<{ subscription: SubscriptionSummary; nodes: ParsedNode[] }> {
   if (!isRecord(body)) {
     throw new Error("Invalid request body.");
@@ -227,7 +230,11 @@ export async function createSubscription(
 
   const config = buildLocalSubscriptionConfig(body);
   // 开启自动测活的源：保存前立即测活，结果随节点一起持久化；内核系统性失败则不创建
-  const nodesWithHealth = await runSubscriptionHealthChecks(nodes, (config.sources ?? []) as SavedSource[]);
+  const nodesWithHealth = await runSubscriptionHealthChecks(
+    nodes,
+    (config.sources ?? []) as SavedSource[],
+    onProgress
+  );
   assertNodeNameFilterKeepsOutput(nodesWithHealth, config);
   const autoUpdateInterval = normalizeLocalAutoUpdateIntervalSeconds(body.autoUpdateInterval);
   const subscriptionInfo = normalizeSubscriptionInfoForPersistence(body.subscriptionInfo) ?? {};
@@ -251,7 +258,8 @@ export async function createSubscription(
 export async function updateSubscription(
   ownerId: string,
   id: string,
-  body: unknown
+  body: unknown,
+  onProgress?: (tested: number, total: number) => void
 ): Promise<{ subscription: SubscriptionSummary | null; nodes: ParsedNode[] }> {
   if (!isRecord(body)) throw new Error("Invalid request body.");
   const current = await prisma.subscription.findFirst({ where: { id, ownerId }, include: { autoUpdateState: true } });
@@ -287,7 +295,11 @@ export async function updateSubscription(
       throw new Error("At least one URL or node is required.");
     }
     // 开启自动测活的源：保存前立即测活，结果随节点一起持久化；内核系统性失败则不更新
-    nodesWithHealth = await runSubscriptionHealthChecks(nextNodes, (nextConfig.sources ?? []) as SavedSource[]);
+    nodesWithHealth = await runSubscriptionHealthChecks(
+      nextNodes,
+      (nextConfig.sources ?? []) as SavedSource[],
+      onProgress
+    );
     assertNodeNameFilterKeepsOutput(nodesWithHealth, nextConfig);
     data.encryptedNodes = encryptJson(nodesWithHealth);
   }
@@ -367,25 +379,59 @@ export function buildSubscriptionFetchCallbacks() {
     fetchUrlUserInfo: async (source: SavedSource) => {
       return fetchSourceUserInfoHeadersDirect(source);
     },
-    runHealthCheck: async ({ source, nodes }: { source: SavedSource; nodes: ParsedNode[] }) => {
-      return runMihomoHealthCheck({ nodes, config: resolveSourceHealthCheck(source) });
+    runHealthCheck: async ({
+      source,
+      nodes,
+      onResult,
+    }: {
+      source: SavedSource;
+      nodes: ParsedNode[];
+      onResult?: (nodeName: string, result: NodeHealthResult) => void;
+    }) => {
+      return runMihomoHealthCheck({
+        nodes,
+        config: resolveSourceHealthCheck(source),
+        ...(onResult ? { onResult } : {}),
+      });
     },
   };
 }
 
-/** 创建/更新订阅保存前，对开启自动测活的源立即测活并合并结果；内核系统性失败时抛出。 */
+/** 创建/更新订阅保存前，对开启自动测活的源立即测活并合并结果；内核系统性失败时抛出。
+ * onProgress 用于流式回传测活进度（tested/total），不传则一次性完成。 */
 async function runSubscriptionHealthChecks(
   nodes: ParsedNode[],
-  sources: SavedSource[]
+  sources: SavedSource[],
+  onProgress?: (tested: number, total: number) => void
 ): Promise<ParsedNode[]> {
   let next = nodes;
+  let tested = 0;
+  let total = 0;
+  for (const source of sources) {
+    if (source.type === "url" && source.useProxyProviders) continue;
+    const config = resolveSourceHealthCheck(source);
+    if (!config.enabled) continue;
+    total += next.filter((node) => getNodeSourceIds(node).includes(source.id)).length;
+  }
+  if (total > 0 && onProgress) onProgress(0, total);
   for (const source of sources) {
     if (source.type === "url" && source.useProxyProviders) continue;
     const config = resolveSourceHealthCheck(source);
     if (!config.enabled) continue;
     const sourceNodes = next.filter((node) => getNodeSourceIds(node).includes(source.id));
     if (sourceNodes.length === 0) continue;
-    const results = await runMihomoHealthCheck({ nodes: sourceNodes, config });
+    const results = await runMihomoHealthCheck({
+      nodes: sourceNodes,
+      config,
+      ...(onProgress
+        ? {
+            onResult: () => {
+              tested += 1;
+              onProgress(tested, total);
+            },
+          }
+        : {}),
+    });
     next = applyNodeHealthResults(next, source.id, results);
   }
   return next;
@@ -432,7 +478,11 @@ async function persistRefreshSuccess(params: {
   });
 }
 
-export async function refreshSubscription(ownerId: string, id: string) {
+export async function refreshSubscription(
+  ownerId: string,
+  id: string,
+  onProgress?: (tested: number, total: number) => void
+) {
   const row = await prisma.subscription.findFirst({ where: { id, ownerId }, include: { autoUpdateState: true } });
   if (!row) return null;
 
@@ -442,6 +492,7 @@ export async function refreshSubscription(ownerId: string, id: string) {
     urls: secrets.urls,
     storedNodes: secrets.nodes,
     ...buildSubscriptionFetchCallbacks(),
+    ...(onProgress ? { onHealthProgress: onProgress } : {}),
   });
   const refreshResult = prepareRefreshCacheResult({
     config: secrets.config,
@@ -476,15 +527,39 @@ export async function refreshSubscription(ownerId: string, id: string) {
       },
     };
   }
+  const body = buildManualRefreshSuccessResponseBody({
+    subscriptionId: row.id,
+    refreshResult,
+    snapshot,
+    cachedAt,
+  });
   return {
     ok: true as const,
-    body: buildManualRefreshSuccessResponseBody({
-      subscriptionId: row.id,
-      refreshResult,
-      snapshot,
-      cachedAt,
-    }),
+    body: { ...body, healthStats: computeNodeHealthStats(snapshot.nodes) },
   };
+}
+
+/** 统计快照节点中带测活结果的节点数与通过数（用于刷新完成提示）。 */
+export function computeNodeHealthStats(nodes: ParsedNode[]): {
+  tested: number;
+  ok: number;
+  fail: number;
+  unsupported: number;
+} {
+  let tested = 0;
+  let ok = 0;
+  let fail = 0;
+  let unsupported = 0;
+  for (const node of nodes) {
+    const health = getNodeHealthResults(node);
+    if (Object.keys(health).length === 0) continue;
+    tested += 1;
+    const status = summarizeNodeHealth(node).status;
+    if (status === "ok") ok += 1;
+    else if (status === "fail") fail += 1;
+    else if (status === "unsupported") unsupported += 1;
+  }
+  return { tested, ok, fail, unsupported };
 }
 
 /**

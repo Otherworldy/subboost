@@ -51,11 +51,20 @@ export type HomeSubscriptionSaveInput = {
   payload: Record<string, unknown>;
 };
 
+export type SubscriptionSaveProgress = {
+  tested: number;
+  total: number;
+};
+
 export type HomeSubscriptionAdapter = {
   loginHref?: string;
   autoUpdateIntervalPolicy?: AutoUpdateIntervalPolicyOverride;
   acceptSaveRequirement?: () => Promise<Response>;
-  saveSubscription?: (input: HomeSubscriptionSaveInput) => Promise<Response>;
+  // onProgress 流式回传保存时的测活进度（未开启自动测活时不会回调）
+  saveSubscription?: (
+    input: HomeSubscriptionSaveInput,
+    onProgress?: (tested: number, total: number) => void
+  ) => Promise<Response>;
 };
 
 type Options = {
@@ -140,6 +149,7 @@ export function useSubscriptionLink({
   const [autoUpdateHours, setAutoUpdateHours] = React.useState(autoUpdatePolicy.defaultHours);
   const [smartNodeMatchingEnabled, setSmartNodeMatchingEnabled] = React.useState(true);
   const [isCreatingSubscription, setIsCreatingSubscription] = React.useState(false);
+  const [saveProgress, setSaveProgress] = React.useState<SubscriptionSaveProgress | null>(null);
   const [copied, setCopied] = React.useState(false);
   const [saveRequirementDialog, setSaveRequirementDialog] = React.useState(false);
   const [subscriptionFlowMode, setSubscriptionFlowMode] = React.useState<ProductMode>("quick");
@@ -295,6 +305,7 @@ export function useSubscriptionLink({
     }
 
     setIsCreatingSubscription(true);
+    setSaveProgress(null);
 
     try {
       const nodeNameFilter: NodeNameFilterConfig = useConfigStore.getState().nodeNameFilter;
@@ -403,11 +414,14 @@ export function useSubscriptionLink({
           },
         };
 
-      const response = await subscriptionAdapter.saveSubscription({
-        isEditing: isEditingExistingSubscription,
-        subscriptionId: editingSubscription?.id ?? null,
-        payload,
-      });
+      const response = await subscriptionAdapter.saveSubscription(
+        {
+          isEditing: isEditingExistingSubscription,
+          subscriptionId: editingSubscription?.id ?? null,
+          payload,
+        },
+        (tested, total) => setSaveProgress({ tested, total })
+      );
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const data = await response.json().catch(() => ({} as any));
@@ -460,6 +474,7 @@ export function useSubscriptionLink({
       toast({ title: "创建订阅失败，请稍后重试", variant: "destructive" });
     } finally {
       setIsCreatingSubscription(false);
+      setSaveProgress(null);
     }
   }, [
     appliedTemplateId,
@@ -533,6 +548,7 @@ export function useSubscriptionLink({
     smartNodeMatchingEnabled,
     setSmartNodeMatchingEnabled,
     isCreatingSubscription,
+    saveProgress,
     copied,
     setCopied,
     saveRequirementDialog,

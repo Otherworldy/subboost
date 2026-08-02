@@ -241,6 +241,7 @@ describe("useSubscriptionLink", () => {
 
     expect(adapter.saveSubscription).toHaveBeenCalledWith(
       expect.objectContaining({
+
         isEditing: false,
         subscriptionId: null,
         payload: expect.objectContaining({
@@ -267,7 +268,8 @@ describe("useSubscriptionLink", () => {
           }),
         }),
       })
-    );
+    , expect.any(Function)
+  );
     expect(hook.subscriptionUrl).toBe("https://subboost.test/s/token-1");
     expect(mocks.bag.interactions.subscriptionLinkSaved).toHaveBeenCalledWith(
       expect.objectContaining({ result: "success", autoUpdateEnabled: true })
@@ -295,9 +297,11 @@ describe("useSubscriptionLink", () => {
 
     expect(adapter.saveSubscription).toHaveBeenCalledWith(
       expect.objectContaining({
+
         payload: expect.objectContaining({ autoUpdateInterval: 360 }),
       })
-    );
+    , expect.any(Function)
+  );
   });
 
   it("saves source metadata variants without adding empty subscription info", async () => {
@@ -335,6 +339,7 @@ describe("useSubscriptionLink", () => {
 
     expect(adapter.saveSubscription).toHaveBeenCalledWith(
       expect.objectContaining({
+
         payload: expect.objectContaining({
           urls: ["https://provider.example/sub"],
           config: expect.objectContaining({
@@ -358,7 +363,8 @@ describe("useSubscriptionLink", () => {
           }),
         }),
       })
-    );
+    , expect.any(Function)
+  );
     const payload = (adapter.saveSubscription as any).mock.calls[0][0].payload;
     expect(payload).not.toHaveProperty("subscriptionInfo");
     expect(payload.config.sources[0]).not.toHaveProperty("subscriptionUserInfo");
@@ -542,8 +548,10 @@ describe("useSubscriptionLink", () => {
     await hook.handleCreateSubscription();
 
     expect(adapter.saveSubscription).toHaveBeenCalledWith(
-      expect.objectContaining({ isEditing: true, subscriptionId: "sub-1" })
-    );
+      expect.objectContaining({
+ isEditing: true, subscriptionId: "sub-1" })
+    , expect.any(Function)
+  );
     expect(setEditingSubscription).toHaveBeenCalledWith(
       expect.objectContaining({ name: "Updated", token: "old-token", autoUpdateInterval: null })
     );

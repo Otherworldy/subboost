@@ -17,6 +17,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@subboost/ui/components/ui/dialog";
+import type { SubscriptionSaveProgress } from "./use-subscription-link";
 import {
   getAutoUpdateIntervalPolicyMinLabel,
   type AutoUpdateIntervalPolicy,
@@ -36,6 +37,7 @@ type Props = {
   smartNodeMatchingEnabled: boolean;
   setSmartNodeMatchingEnabled: (value: boolean) => void;
   isCreatingSubscription: boolean;
+  saveProgress: SubscriptionSaveProgress | null;
   copied: boolean;
   isEditingExistingSubscription: boolean;
   handleCopyUrl: () => void;
@@ -56,6 +58,7 @@ export function SubscriptionLinkDialog({
   smartNodeMatchingEnabled,
   setSmartNodeMatchingEnabled,
   isCreatingSubscription,
+  saveProgress,
   copied,
   isEditingExistingSubscription,
   handleCopyUrl,
@@ -63,9 +66,18 @@ export function SubscriptionLinkDialog({
 }: Props) {
   const close = () => onOpenChange(false);
   const minAutoUpdateLabel = getAutoUpdateIntervalPolicyMinLabel(autoUpdatePolicy);
+  // 保存/测活进行中禁止关闭弹窗（蒙版点击、Esc、关闭按钮均被拦截），避免误触中断
+  const handleOpenChange = (next: boolean) => {
+    if (!next && isCreatingSubscription) return;
+    onOpenChange(next);
+  };
+  const progressPercent =
+    saveProgress && saveProgress.total > 0
+      ? Math.min(100, Math.round((saveProgress.tested / saveProgress.total) * 100))
+      : 0;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -185,9 +197,26 @@ export function SubscriptionLinkDialog({
         )}
 
         <DialogFooter>
+          {isCreatingSubscription && (
+            <div className="w-full space-y-2 rounded-lg border border-indigo-500/30 bg-indigo-500/10 p-3">
+              <div className="flex items-center justify-between text-xs text-indigo-200">
+                <span className="flex items-center gap-2">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  {saveProgress ? `正在测活节点 ${saveProgress.tested}/${saveProgress.total}` : "正在保存订阅…"}
+                </span>
+                {saveProgress && <span>{progressPercent}%</span>}
+              </div>
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+                <div
+                  className="h-full rounded-full bg-indigo-400 transition-all duration-200"
+                  style={{ width: `${progressPercent}%` }}
+                />
+              </div>
+            </div>
+          )}
           {!subscriptionUrl ? (
             <>
-              <Button variant="outline" onClick={close}>
+              <Button variant="outline" onClick={close} disabled={isCreatingSubscription}>
                 取消
               </Button>
               <Button

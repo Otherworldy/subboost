@@ -42,6 +42,14 @@ vi.mock("@local/lib/subscription-service", () => ({
 
 const request = new Request("http://localhost/api/subscriptions", { method: "POST" });
 
+async function readNdjsonLines(response: Response) {
+  const text = await response.text();
+  return text
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+}
+
 describe("local subscription route handlers", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -74,7 +82,7 @@ describe("local subscription route handlers", () => {
     });
   });
 
-  it("creates subscriptions and reports bad input", async () => {
+  it("creates subscriptions and streams progress with the result", async () => {
     mocks.readJsonBody.mockResolvedValueOnce({ ok: false, reason: "invalid_json" });
     await expect(createSubscriptionResponse(request)).resolves.toEqual({
       message: "Invalid JSON body.",
@@ -83,28 +91,30 @@ describe("local subscription route handlers", () => {
     });
 
     mocks.readJsonBody.mockResolvedValueOnce({ ok: true, value: { name: "A" } });
-    mocks.createSubscription.mockResolvedValueOnce({ subscription: { id: "sub-1" }, nodes: [{}] });
-    await expect(createSubscriptionResponse(request)).resolves.toEqual({
-      body: { subscription: { id: "sub-1" }, nodes: [{}] },
-      status: 201,
+    mocks.createSubscription.mockImplementationOnce(async (_ownerId, _body, onProgress) => {
+      onProgress?.(0, 2);
+      onProgress?.(1, 2);
+      return { subscription: { id: "sub-1" }, nodes: [{}] };
     });
-    expect(mocks.createSubscription).toHaveBeenCalledWith("admin-1", { name: "A" });
+    const created = await createSubscriptionResponse(request);
+    expect(created.status).toBe(200);
+    expect(await readNdjsonLines(created)).toEqual([
+      { type: "health", tested: 0, total: 2 },
+      { type: "health", tested: 1, total: 2 },
+      { type: "complete", value: { subscription: { id: "sub-1" }, nodes: [{}] } },
+    ]);
+    expect(mocks.createSubscription).toHaveBeenCalledWith("admin-1", { name: "A" }, expect.any(Function));
 
     mocks.readJsonBody.mockResolvedValueOnce({ ok: true, value: { name: "" } });
     mocks.createSubscription.mockRejectedValueOnce(new Error("Name required"));
-    await expect(createSubscriptionResponse(request)).resolves.toEqual({
-      message: "Name required",
-      code: "BAD_REQUEST",
-      status: 400,
-    });
+    const failed = await createSubscriptionResponse(request);
+    expect(failed.status).toBe(200);
+    expect(await readNdjsonLines(failed)).toEqual([{ type: "error", message: "Name required" }]);
 
     mocks.readJsonBody.mockResolvedValueOnce({ ok: true, value: { name: "" } });
     mocks.createSubscription.mockRejectedValueOnce("bad");
-    await expect(createSubscriptionResponse(request)).resolves.toEqual({
-      message: "Unable to create subscription.",
-      code: "BAD_REQUEST",
-      status: 400,
-    });
+    const crashed = await createSubscriptionResponse(request);
+    expect(await readNdjsonLines(crashed)).toEqual([{ type: "error", message: "保存失败" }]);
   });
 
   it("updates subscriptions and validates JSON body shape", async () => {
@@ -115,28 +125,30 @@ describe("local subscription route handlers", () => {
       status: 400,
     });
 
+    // 流外存在性检查：订阅不存在保持 JSON 404
     mocks.readJsonBody.mockResolvedValueOnce({ ok: true, value: { name: "B" } });
-    mocks.updateSubscription.mockResolvedValueOnce({ subscription: { id: "sub-1", name: "B" }, nodes: [] });
-    await expect(updateSubscriptionResponse(request, "sub-1")).resolves.toEqual({
-      body: { subscription: { id: "sub-1", name: "B" }, nodes: [] },
-      status: 200,
-    });
-
-    mocks.readJsonBody.mockResolvedValueOnce({ ok: true, value: { name: "B" } });
-    mocks.updateSubscription.mockResolvedValueOnce({ subscription: null, nodes: [] });
+    mocks.getSubscription.mockResolvedValueOnce(null);
     await expect(updateSubscriptionResponse(request, "missing")).resolves.toEqual({
       message: "Subscription not found.",
       code: "NOT_FOUND",
       status: 404,
     });
 
+    mocks.readJsonBody.mockResolvedValueOnce({ ok: true, value: { name: "B" } });
+    mocks.getSubscription.mockResolvedValueOnce({ id: "sub-1" });
+    mocks.updateSubscription.mockResolvedValueOnce({ subscription: { id: "sub-1", name: "B" }, nodes: [] });
+    const updated = await updateSubscriptionResponse(request, "sub-1");
+    expect(updated.status).toBe(200);
+    expect(await readNdjsonLines(updated)).toEqual([
+      { type: "complete", value: { subscription: { id: "sub-1", name: "B" }, nodes: [] } },
+    ]);
+    expect(mocks.updateSubscription).toHaveBeenCalledWith("admin-1", "sub-1", { name: "B" }, expect.any(Function));
+
     mocks.readJsonBody.mockResolvedValueOnce({ ok: true, value: { name: "" } });
+    mocks.getSubscription.mockResolvedValueOnce({ id: "sub-1" });
     mocks.updateSubscription.mockRejectedValueOnce("bad");
-    await expect(updateSubscriptionResponse(request, "sub-1")).resolves.toEqual({
-      message: "Unable to update subscription.",
-      code: "BAD_REQUEST",
-      status: 400,
-    });
+    const failedUpdate = await updateSubscriptionResponse(request, "sub-1");
+    expect(await readNdjsonLines(failedUpdate)).toEqual([{ type: "error", message: "保存失败" }]);
   });
 
   it("deletes and refreshes subscriptions", async () => {
@@ -150,17 +162,37 @@ describe("local subscription route handlers", () => {
     mocks.deleteSubscription.mockResolvedValueOnce(true);
     await expect(deleteSubscriptionResponse("sub-1")).resolves.toEqual({ body: { success: true }, status: 200 });
 
-    mocks.refreshSubscription.mockResolvedValueOnce(null);
+    // 订阅不存在：流外检查保持 JSON 404
+    mocks.getSubscription.mockResolvedValueOnce(null);
     await expect(refreshSubscriptionResponse("missing")).resolves.toEqual({
       message: "Subscription not found.",
       code: "NOT_FOUND",
       status: 404,
     });
 
+    // 刷新失败：error 流行
+    mocks.getSubscription.mockResolvedValueOnce({ id: "sub-1" });
     mocks.refreshSubscription.mockResolvedValueOnce({ ok: false, response: { body: { error: "bad" }, status: 502 } });
-    await expect(refreshSubscriptionResponse("sub-1")).resolves.toEqual({ body: { error: "bad" }, status: 502 });
+    const failedRefresh = await refreshSubscriptionResponse("sub-1");
+    expect(failedRefresh.status).toBe(200);
+    expect(await readNdjsonLines(failedRefresh)).toEqual([{ type: "error", message: "bad" }]);
 
-    mocks.refreshSubscription.mockResolvedValueOnce({ ok: true, body: { nodeCount: 2 } });
-    await expect(refreshSubscriptionResponse("sub-1")).resolves.toEqual({ body: { nodeCount: 2 }, status: 200 });
+    // 刷新成功：health 进度行 + complete 行
+    mocks.getSubscription.mockResolvedValueOnce({ id: "sub-1" });
+    mocks.refreshSubscription.mockImplementationOnce(async (_ownerId, _id, onProgress) => {
+      onProgress?.(1, 5);
+      onProgress?.(5, 5);
+      return { ok: true, body: { nodeCount: 2, healthStats: { tested: 5, ok: 3, fail: 2, unsupported: 0 } } };
+    });
+    const refreshed = await refreshSubscriptionResponse("sub-1");
+    expect(refreshed.status).toBe(200);
+    expect(await readNdjsonLines(refreshed)).toEqual([
+      { type: "health", tested: 1, total: 5 },
+      { type: "health", tested: 5, total: 5 },
+      {
+        type: "complete",
+        value: { nodeCount: 2, healthStats: { tested: 5, ok: 3, fail: 2, unsupported: 0 } },
+      },
+    ]);
   });
 });

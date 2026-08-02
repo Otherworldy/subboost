@@ -86,7 +86,7 @@ const localHomeAdapter: HomeSurfaceAdapter = {
   subscription: {
     loginHref: "/login",
     autoUpdateIntervalPolicy: LOCAL_AUTO_UPDATE_POLICY,
-    saveSubscription: ({ isEditing, subscriptionId, payload }) => {
+    saveSubscription: ({ isEditing, subscriptionId, payload }, onProgress) => {
       const endpoint =
         isEditing && subscriptionId
           ? `/api/subscriptions/${encodeURIComponent(subscriptionId)}`
@@ -95,6 +95,52 @@ const localHomeAdapter: HomeSurfaceAdapter = {
         method: isEditing ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
+      }).then(async (response) => {
+        // 前置错误（401/400 校验）保持 JSON 原样返回
+        if (!response.ok) return response;
+        const contentType = response.headers.get("content-type") ?? "";
+        if (!contentType.includes("x-ndjson")) return response;
+        // 流式保存：测活进度逐行推送，最后 complete/error 行包装为普通 JSON Response
+        const reader = response.body?.getReader();
+        if (!reader) return response;
+        const decoder = new TextDecoder();
+        let buffer = "";
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          let newline: number;
+          while ((newline = buffer.indexOf("\n")) >= 0) {
+            const line = buffer.slice(0, newline).trim();
+            buffer = buffer.slice(newline + 1);
+            if (!line) continue;
+            const message = JSON.parse(line) as {
+              type: string;
+              tested?: number;
+              total?: number;
+              value?: unknown;
+              message?: string;
+            };
+            if (message.type === "health" && typeof message.tested === "number" && typeof message.total === "number") {
+              onProgress?.(message.tested, message.total);
+            } else if (message.type === "complete") {
+              const value = (message.value ?? {}) as { subscription?: unknown; nodes?: unknown };
+              return new Response(JSON.stringify({ subscription: value.subscription, nodes: value.nodes }), {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+              });
+            } else if (message.type === "error") {
+              return new Response(JSON.stringify({ error: message.message || "创建失败" }), {
+                status: 400,
+                headers: { "Content-Type": "application/json" },
+              });
+            }
+          }
+        }
+        return new Response(JSON.stringify({ error: "保存失败：响应不完整" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        });
       });
     },
   },

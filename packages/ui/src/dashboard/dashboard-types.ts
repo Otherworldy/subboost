@@ -32,4 +32,11 @@ export interface RefreshSubscriptionResponse {
   nodeCount?: number;
   attemptedUrlFetch?: boolean;
   usedUrlFetch?: boolean;
+  // 本次刷新测活的统计（开启自动测活时）：tested=带测活结果的节点数，ok=通过节点数
+  healthStats?: {
+    tested: number;
+    ok: number;
+    fail: number;
+    unsupported: number;
+  };
 }

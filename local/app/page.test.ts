@@ -24,7 +24,10 @@ function adapter() {
 describe("local home page adapter", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, headers: { get: () => "application/json" } }))
+    );
   });
 
   it("calls local APIs and normalizes default response fields", async () => {
@@ -69,5 +72,40 @@ describe("local home page adapter", () => {
     await localAdapter.subscription.saveSubscription({ isEditing: true, subscriptionId: "sub/1", payload: { name: "edit" } });
     expect((fetch as any).mock.calls.at(-1)[0]).toBe("/api/subscriptions/sub%2F1");
     expect((fetch as any).mock.calls.at(-1)[1]).toEqual(expect.objectContaining({ method: "PUT" }));
+
+    // 流式保存：测活进度行回调 onProgress，complete 行包装为 JSON Response
+    const progressCalls: number[][] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        headers: { get: () => "application/x-ndjson" },
+        body: {
+          getReader: () => {
+            let sent = false;
+            return {
+              read: async () => {
+                if (sent) return { done: true };
+                sent = true;
+                const payload =
+                  '{"type":"health","tested":2,"total":5}\n' +
+                  '{"type":"health","tested":5,"total":5}\n' +
+                  '{"type":"complete","value":{"subscription":{"id":"sub-9"},"nodes":[]}}\n';
+                return { done: false, value: new TextEncoder().encode(payload) };
+              },
+            };
+          },
+        },
+      }))
+    );
+    const streamed = await localAdapter.subscription.saveSubscription(
+      { isEditing: false, subscriptionId: null, payload: { name: "stream" } },
+      (tested: number, total: number) => progressCalls.push([tested, total])
+    );
+    expect(progressCalls).toEqual([
+      [2, 5],
+      [5, 5],
+    ]);
+    await expect(streamed.json()).resolves.toEqual({ subscription: { id: "sub-9" }, nodes: [] });
   });
 });

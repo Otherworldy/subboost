@@ -53,7 +53,10 @@ export type DashboardSurfaceAdapter = {
   editSubscriptionHref?: (subscription: Subscription) => string;
   fetchSubscriptions: () => Promise<Subscription[]>;
   deleteSubscription: (id: string) => Promise<void>;
-  refreshSubscription: (id: string) => Promise<RefreshSubscriptionResponse>;
+  refreshSubscription: (
+    id: string,
+    onProgress?: (tested: number, total: number) => void
+  ) => Promise<RefreshSubscriptionResponse>;
   updateSubscriptionSettings: (id: string, payload: UpdateSettingsPayload) => Promise<void>;
   resolveDownloadUrl?: (subscription: Subscription) => string;
   renderAnnouncement?: (context: { user: User }) => React.ReactNode;
@@ -121,6 +124,12 @@ export function SubscriptionDashboardSurface({ adapter }: Props) {
   const [isLoading, setIsLoading] = React.useState(true);
   const [copiedId, setCopiedId] = React.useState<string | null>(null);
   const [refreshingId, setRefreshingId] = React.useState<string | null>(null);
+  const [refreshProgress, setRefreshProgress] = React.useState<{
+    id: string;
+    name: string;
+    tested: number;
+    total: number;
+  } | null>(null);
 
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   const [settingsSub, setSettingsSub] = React.useState<Subscription | null>(null);
@@ -241,11 +250,15 @@ export function SubscriptionDashboardSurface({ adapter }: Props) {
     }
   };
 
-  const refreshSubscription = async (id: string) => {
+  const refreshSubscription = async (sub: Subscription) => {
     if (refreshingId) return;
+    const id = sub.id;
     setRefreshingId(id);
+    setRefreshProgress({ id, name: sub.name, tested: 0, total: 0 });
     try {
-      const data = await adapter.refreshSubscription(id);
+      const data = await adapter.refreshSubscription(id, (tested, total) =>
+        setRefreshProgress({ id, name: sub.name, tested, total })
+      );
       await fetchSubscriptions();
       toast(buildRefreshSubscriptionSuccessToast(data));
     } catch (error) {
@@ -253,6 +266,7 @@ export function SubscriptionDashboardSurface({ adapter }: Props) {
       toast({ title: error instanceof Error ? error.message : "刷新失败，请稍后重试", variant: "destructive" });
     } finally {
       setRefreshingId(null);
+      setRefreshProgress(null);
     }
   };
 
@@ -452,6 +466,41 @@ export function SubscriptionDashboardSurface({ adapter }: Props) {
 
         {adapter.renderExtraQuickActions?.({ user })}
       </div>
+
+      {/* 右下角浮动刷新进度弹窗：刷新/测活期间展示，完成后自动消失 */}
+      {refreshProgress && (
+        <div className="fixed bottom-4 right-4 z-[90] w-[320px] rounded-xl border border-indigo-500/30 bg-slate-900/95 p-4 shadow-2xl backdrop-blur">
+          <div className="flex items-center gap-2">
+            <RefreshCw className="h-4 w-4 flex-shrink-0 animate-spin text-indigo-300" />
+            <p className="min-w-0 flex-1 truncate text-sm font-medium text-white">
+              正在刷新订阅
+              <span className="ml-1 text-white/60">“{refreshProgress.name}”</span>
+            </p>
+          </div>
+          <div className="mt-3">
+            <div className="flex items-center justify-between text-xs text-indigo-200">
+              <span>
+                {refreshProgress.total > 0
+                  ? `正在测活节点 ${refreshProgress.tested}/${refreshProgress.total}`
+                  : "正在拉取并解析节点…"}
+              </span>
+              {refreshProgress.total > 0 && (
+                <span>
+                  {Math.min(100, Math.round((refreshProgress.tested / refreshProgress.total) * 100))}%
+                </span>
+              )}
+            </div>
+            <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+              <div
+                className="h-full rounded-full bg-indigo-400 transition-all duration-200"
+                style={{
+                  width: `${refreshProgress.total > 0 ? Math.min(100, Math.round((refreshProgress.tested / refreshProgress.total) * 100)) : 8}%`,
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -504,9 +553,10 @@ function SubscriptionRow({
   onCopy: (subscriptionUrl: string, id: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onDownload: (sub: Subscription) => Promise<void>;
-  onRefresh: (id: string) => Promise<void>;
+  onRefresh: (sub: Subscription) => Promise<void>;
   onSettings: (sub: Subscription) => void;
 }) {
+  const isRefreshing = refreshingId === sub.id;
   return (
     <div className="flex flex-col gap-3 p-4 rounded-lg bg-white/5 border border-white/10 hover:border-white/20 transition-colors sm:flex-row sm:items-center sm:justify-between sm:gap-4">
       <div className="flex min-w-0 flex-1 items-start gap-4 sm:items-center">
@@ -562,7 +612,7 @@ function SubscriptionRow({
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => void onRefresh(sub.id)}
+          onClick={() => void onRefresh(sub)}
           disabled={refreshingId === sub.id}
           className="gap-0 sm:gap-2"
           title="重新生成配置并刷新缓存"
