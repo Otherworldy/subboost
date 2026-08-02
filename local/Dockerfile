@@ -24,6 +24,9 @@ RUN --mount=type=cache,target=/root/.npm,sharing=locked \
       attempt=$((attempt + 1)); \
     done
 
+# 测活内核：固定版本的官方多架构 mihomo 镜像（amd64/arm64），构建时按平台自动选取
+FROM metacubex/mihomo:v1.19.28 AS mihomo
+
 FROM node:22-alpine AS builder
 WORKDIR /package
 RUN apk add --no-cache openssl
@@ -62,6 +65,9 @@ ENV APP_BUILD_SHA=${APP_BUILD_SHA}
 ENV APP_VERSION=${APP_VERSION}
 ENV APP_VERSION_TOKEN=${APP_VERSION_TOKEN}
 RUN apk add --no-cache openssl
+
+# 固定版本的 mihomo 内核（多架构），供订阅测活使用；开发环境可用 MIHOMO_PATH 覆盖
+COPY --from=mihomo /mihomo /usr/local/bin/mihomo
 
 COPY --chown=node:node --from=builder /package/local/.next/standalone ./
 COPY --chown=node:node --from=production-deps /package/node_modules ./node_modules

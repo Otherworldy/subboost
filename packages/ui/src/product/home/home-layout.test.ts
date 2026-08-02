@@ -48,6 +48,7 @@ vi.mock("next/link", () => ({
 }));
 
 vi.mock("lucide-react", () => ({
+  Activity: () => React.createElement("span", null, "activity-icon"),
   AlertTriangle: () => React.createElement("span", null, "alert-icon"),
   Download: () => React.createElement("span", null, "download-icon"),
   ExternalLink: () => React.createElement("span", null, "external-icon"),
@@ -164,6 +165,9 @@ const baseProps = {
   hasValidSources: false,
   handleGenerate: vi.fn(),
   handleDownload: vi.fn(),
+  healthCheckingAll: false,
+  handleHealthCheckAll: vi.fn(),
+  hasAnyNodes: false,
   subscription: createSubscription(),
 };
 
@@ -224,6 +228,7 @@ describe("HomeLayout", () => {
   it("wires advanced edit actions, upload tracking, and YAML preview", () => {
     const handleGenerate = vi.fn();
     const handleDownload = vi.fn();
+    const handleHealthCheckAll = vi.fn();
     const onTemplateUploadOpen = vi.fn();
     const subscription = createSubscription({
       subscriptionDialog: true,
@@ -252,6 +257,7 @@ describe("HomeLayout", () => {
         hasValidSources: true,
         handleGenerate,
         handleDownload,
+        handleHealthCheckAll,
         subscription,
         onTemplateUploadOpen,
         templateUploadHref: "/templates?upload=1",
@@ -267,10 +273,12 @@ describe("HomeLayout", () => {
     mocks.buttons[1].onClick();
     mocks.buttons[2].onClick();
     mocks.buttons[3].onClick();
+    mocks.buttons[4].onClick();
 
     expect(handleGenerate).toHaveBeenCalledWith("advanced");
     expect(onTemplateUploadOpen).toHaveBeenCalled();
     expect(mocks.interactions.templateUploadOpened).toHaveBeenCalledWith({ entry: "home" });
+    expect(handleHealthCheckAll).toHaveBeenCalled();
     expect(handleDownload).toHaveBeenCalledWith("advanced");
     expect(subscription.handleGenerateSubscription).toHaveBeenCalledWith("advanced");
     expect(mocks.subscriptionDialog).toMatchObject({

@@ -80,6 +80,7 @@ vi.mock("@radix-ui/react-popover", () => ({
   Arrow: () => null,
 }));
 vi.mock("lucide-react", () => ({
+  Activity: () => null,
   AlertCircle: () => null,
   Check: () => null,
   ChevronDown: () => null,
@@ -320,7 +321,7 @@ describe("quick mode SourcesSection", () => {
   it("closes the expanded editor and triggers re-import only when metadata changed", () => {
     renderSection({
       1: "s1",
-      2: {
+      3: {
         id: "s1",
         content: "old",
         tag: "OLD",
@@ -338,7 +339,7 @@ describe("quick mode SourcesSection", () => {
     mocks.store.parseSingleSource.mockClear();
     renderSection({
       1: "s1",
-      2: {
+      3: {
         id: "s1",
         content: urlSource.content,
         tag: "HK",
@@ -402,6 +403,52 @@ describe("quick mode SourcesSection", () => {
 
     expect(mocks.interactions.sourceImported).toHaveBeenCalledWith(
       expect.objectContaining({ result: "validationError" })
+    );
+  });
+
+  it("toggles auto health checks and runs manual source checks", async () => {
+    mocks.store.runHealthCheck = vi.fn().mockResolvedValue({
+      ok: true,
+      summary: { tested: 2, ok: 1, fail: 1, unsupported: 0 },
+    });
+    renderSection({ 1: "s1" });
+
+    const healthSwitch = mocks.captures.switches.find((item: any) => item["aria-label"] === "自动测活");
+    expect(healthSwitch).toBeTruthy();
+    expect(healthSwitch.checked).toBe(false);
+
+    healthSwitch.onCheckedChange(true);
+    expect(mocks.markSourceAsPendingImport).not.toHaveBeenCalled();
+    expect(mocks.store.setSources).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ id: "s1", healthCheck: { enabled: true } })])
+    );
+
+    const checkButton = mocks.captures.iconButtons.find((item: any) => item.label === "立即测活该源");
+    expect(checkButton).toBeTruthy();
+    checkButton.onClick();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(mocks.store.runHealthCheck).toHaveBeenCalledWith({ kind: "source", sourceId: "s1" });
+    expect(mocks.toast).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "测活完成：1/2 个节点通过", variant: "warning" })
+    );
+  });
+
+  it("disables auto health for proxy-provider sources and warns when no nodes exist", async () => {
+    mocks.store.runHealthCheck = vi.fn().mockResolvedValue({ ok: true, summary: { tested: 0, ok: 0, fail: 0, unsupported: 0 } });
+    mocks.store.nodes = [];
+    mocks.store.sources = [{ ...urlSource, useProxyProviders: true }, textSource];
+    renderSection({ 1: "s1" });
+
+    const healthSwitch = mocks.captures.switches.find((item: any) => item["aria-label"] === "自动测活");
+    expect(healthSwitch.disabled).toBe(true);
+
+    const checkButton = mocks.captures.iconButtons.find((item: any) => item.label === "立即测活该源");
+    checkButton.onClick();
+    await Promise.resolve();
+    expect(mocks.store.runHealthCheck).not.toHaveBeenCalled();
+    expect(mocks.toast).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "该源暂无节点，请先导入后再测活", variant: "warning" })
     );
   });
 
@@ -567,7 +614,7 @@ describe("quick mode SourcesSection", () => {
     mocks.store.sources = [{ ...urlSource, parsing: true }];
     renderSection({
       1: "s1",
-      2: {
+      3: {
         id: "s1",
         content: "old",
         tag: "OLD",

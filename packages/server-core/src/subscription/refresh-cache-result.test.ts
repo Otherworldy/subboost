@@ -112,6 +112,31 @@ describe("prepareRefreshCacheResult", () => {
     });
   });
 
+  it("saves snapshots where automatic health checks rejected every node", () => {
+    const healthFailedNode = {
+      ...node,
+      _sourceIds: ["auto"],
+      _health: { auto: { status: "fail", checkedAt: "2026-06-01T00:00:00.000Z" } },
+    } as ParsedNode;
+    const result = prepareRefreshCacheResult({
+      config: {
+        sources: [
+          { id: "auto", type: "url", content: "https://example.com/a", healthCheck: { enabled: true } },
+        ],
+      },
+      snapshot: snapshot({ nodes: [healthFailedNode] }),
+      maxNodesPerSubscription: 10,
+    });
+
+    // 原始快照有效：允许保存全部节点（含失败结果），生成侧健康节点数为 0
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.nodeCount).toBe(1);
+    expect(result.healthNodeCount).toBe(0);
+    expect(result.cacheEntry.nodes).toEqual([healthFailedNode]);
+    expect(result.generatedYaml).not.toContain("node-a.example.com");
+  });
+
   it("allows provider output when all raw nodes are excluded and caches the raw snapshot", () => {
     const filtered = prepareRefreshCacheResult({
       config: {

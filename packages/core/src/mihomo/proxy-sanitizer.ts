@@ -31,6 +31,7 @@ const REQUIRED_STRING_FIELDS_BY_TYPE: Record<string, string[]> = {
   ssr: ["cipher", "password", "protocol", "obfs"],
   vmess: ["uuid"],
   vless: ["uuid"],
+  tuic: ["uuid"],
   trojan: ["password"],
   anytls: ["password"],
   hysteria2: ["password"],

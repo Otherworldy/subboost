@@ -9,6 +9,7 @@ import { SubscriptionImportErrorBadge } from "@subboost/ui/product/converter/sub
 import { buildSourceDisplayLabel } from "@subboost/ui/product/converter/source-display-label";
 import { AddSourceMenu, SourceStatusPopover, SourceTypeChoices } from "@subboost/ui/product/converter/source-controls";
 import { SourceEditorDialog } from "@subboost/ui/product/converter/source-editor-dialog";
+import { SourceHealthControls } from "@subboost/ui/product/converter/source-health-controls";
 import { useSubscriptionSourcesController } from "@subboost/ui/product/converter/use-subscription-sources-controller";
 import { sourceTypeInfo } from "./constants";
 
@@ -20,6 +21,8 @@ export function SourcesSection() {
     expandedSource,
     expandedSourcePreviewName,
     handleImportSource,
+    handleHealthCheckSource,
+    healthCheckingSourceId,
     moveSource,
     nodeCount,
     nodesBySourceId,
@@ -61,6 +64,16 @@ export function SourcesSection() {
                   )}
                 </div>
                 <div className="flex items-center gap-1">
+                  <SourceHealthControls
+                    source={source}
+                    checking={healthCheckingSourceId === source.id}
+                    onCheck={() => void handleHealthCheckSource(source.id)}
+                    onToggleAuto={(enabled) =>
+                      updateSourceMeta(source.id, {
+                        healthCheck: { ...(source.healthCheck ?? {}), enabled },
+                      })
+                    }
+                  />
                   <div className="flex flex-col">
                     <IconButton
                       label="上移"

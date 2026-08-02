@@ -11,6 +11,7 @@ import {
 } from "@subboost/ui/product/interactions";
 import { getCompactDateStampInBeijing } from "@subboost/core/time/beijing";
 import { useConfigStore } from "@subboost/ui/store/config-store";
+import { showHealthRunOutcomeToast } from "@subboost/ui/product/converter/health-outcome";
 import { toast } from "@subboost/ui/components/ui/toaster";
 
 type UseHomeActionsOptions = {
@@ -188,5 +189,20 @@ export function useHomeActions({
 
   const hasValidSources = React.useMemo(() => storeSources.some((s) => s.content.trim()), [storeSources]);
 
-  return { handleDownload, handleGenerate, hasValidSources };
+  const [healthCheckingAll, setHealthCheckingAll] = React.useState(false);
+  const handleHealthCheckAll = React.useCallback(async () => {
+    if (nodes.length === 0) {
+      toast({ title: "暂无节点可测活，请先导入节点", variant: "warning" });
+      return;
+    }
+    setHealthCheckingAll(true);
+    try {
+      const outcome = await useConfigStore.getState().runHealthCheck({ kind: "all" });
+      showHealthRunOutcomeToast(outcome);
+    } finally {
+      setHealthCheckingAll(false);
+    }
+  }, [nodes.length]);
+
+  return { handleDownload, handleGenerate, hasValidSources, handleHealthCheckAll, healthCheckingAll };
 }

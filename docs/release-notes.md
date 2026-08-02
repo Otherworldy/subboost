@@ -1,3 +1,63 @@
+# SubBoost v2.8.0
+
+## 中文
+
+### 更新重点
+
+SubBoost v2.8.0 新增基于 mihomo 内核的订阅节点测活：开启自动测活后，保存订阅以及每次手动/定时刷新都会测活，只把延迟合格的节点输出到下游订阅，同时把每个节点的最近延迟保留在“节点管理”中供查看。
+
+### 主要变化
+
+- 订阅/节点源支持自动测活开关：开启后刷新时只保留延迟不超过上限的节点供下游使用，失败的节点仍保留在页面“节点管理”中，不会丢失。
+- 提供三级手动测活：源卡片上的立即测活、节点管理里每个节点的单独测活、以及预览区操作栏的“全部测活”；手动测活不受自动开关限制。
+- “高级编辑”弹窗可配置测活 URL、最高延迟（100–60000ms）与并发（1–100），默认 URL 为 `https://www.google.com/`、最高延迟 5000ms、并发 20；旧配置默认关闭测活。
+- 节点管理列表直接展示最近一次测活结果：通过显示最快延迟，失败/不支持分别标记，并可查看测量时间。
+- 生产镜像内置固定版本（v1.19.28）的官方 mihomo 内核，amd64/arm64 均可用；开发环境可用 `MIHOMO_PATH` 指定其他二进制。
+- 保存订阅时立即测活，mihomo 本身启动失败不会写入或覆盖订阅；全部节点测活失败时仍保存页面结果，下游下载会提示暂无可用节点。
+
+### 升级说明
+
+- 无需数据库迁移；测活配置与结果随订阅的加密配置/节点一起保存。
+- 自动测活默认关闭，升级不会改动现有订阅。
+- 自建/非官方镜像部署时，请确保镜像内存在 `mihomo` 可执行文件（或设置 `MIHOMO_PATH`），否则开启自动测活会提示未找到内核。
+
+## English
+
+### Highlights
+
+SubBoost v2.8.0 adds mihomo-kernel-based subscription node health checks. When
+auto health checks are enabled, saving a subscription and every manual/scheduled
+refresh re-tests nodes, only healthy nodes are published downstream, and the
+latest latency for every node stays visible in Node Management.
+
+### Main Changes
+
+- Per-source auto health check toggle: on refresh, only nodes within the latency
+  limit are published downstream; failed nodes remain in Node Management.
+- Three manual health check entry points: per source, per node, and "Check All"
+  in the shared action bar; manual checks ignore the auto toggle.
+- The advanced source editor configures the test URL, max latency
+  (100–60000 ms), and concurrency (1–100). Defaults: `https://www.google.com/`,
+  5000 ms, 20; older configs keep health checks disabled.
+- Node Management shows the latest result per node: fastest latency, failed, or
+  unsupported, with the measurement time on hover.
+- Production images bundle the official mihomo kernel at a pinned version
+  (v1.19.28) for amd64/arm64; development can override it via `MIHOMO_PATH`.
+- Saving runs health checks first and never persists when the kernel itself
+  fails to start; if every node fails, results are still saved and downloads
+  respond with a clear "no healthy nodes" message.
+
+### Upgrade Notes
+
+- No database migration is required; health check settings and results are
+  stored with the encrypted subscription config/nodes.
+- Health checks are off by default; upgrading never rewrites existing
+  subscriptions.
+- Custom images must include a `mihomo` binary (or set `MIHOMO_PATH`), otherwise
+  enabling health checks reports a missing kernel.
+
+---
+
 # SubBoost v2.7.0
 
 ## 中文

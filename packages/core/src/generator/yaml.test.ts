@@ -63,6 +63,35 @@ describe("configToYaml", () => {
     expect(yaml).toContain("rules:\n  - MATCH,Select");
   });
 
+  it("strips health and source metadata from generated proxy output", () => {
+    const yaml = configToYaml({
+      proxies: [
+        {
+          name: "Health Node",
+          type: "ss",
+          server: "node.example.com",
+          port: 8388,
+          cipher: "aes-128-gcm",
+          password: "secret",
+          _originName: "原始名称",
+          _sourceIds: ["s1", "s2"],
+          _health: {
+            s1: { status: "ok", delayMs: 123, checkedAt: "2026-06-01T00:00:00.000Z" },
+          },
+        },
+      ],
+      "proxy-groups": [],
+      rules: ["MATCH,Select"],
+    } as unknown as ClashConfig);
+
+    expect(yaml).toContain("name: \"Health Node\"");
+    expect(yaml).not.toContain("_health");
+    expect(yaml).not.toContain("_sourceIds");
+    expect(yaml).not.toContain("_originName");
+    expect(yaml).not.toContain("原始名称");
+    expect(yaml).not.toContain("123");
+  });
+
   it("keeps empty generated sections explicit", () => {
     const yaml = configToYaml({
       proxies: [],

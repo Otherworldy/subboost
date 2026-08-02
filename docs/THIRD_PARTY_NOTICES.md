@@ -29,6 +29,16 @@ links to external ecosystem resources.
 The public source includes rule catalog identifiers and URLs for discovery and
 configuration. It does not vendor the complete upstream rule dataset.
 
+## Mihomo Kernel Binary (Health Checks)
+
+Production images vendor the official mihomo binary at a pinned version
+(`metacubex/mihomo:v1.19.28`) so that subscription health checks can run inside
+the container without extra setup. Mihomo is licensed under GPL-3.0-only; its
+source is available at https://github.com/MetaCubeX/mihomo. You can replace or
+disable the bundled binary by setting the `MIHOMO_PATH` environment variable
+(for example, point it at a self-built binary), and self-hosted builds that do
+not use the official image can provide the binary on `PATH` instead.
+
 ## Compatibility Research
 
 Parser compatibility fixtures and notes may reference external open-source

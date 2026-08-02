@@ -14,6 +14,7 @@ import {
   type UserConfig,
 } from "@subboost/core/types/config";
 import { stripImportedNodeControlFieldsFromList } from "@subboost/core/subscription/imported-node-controls";
+import { filterNodesByHealth } from "@subboost/core/subscription/node-health";
 import { buildProxyProvidersFromConfig } from "@subboost/core/subscription/proxy-providers";
 import { resolveNodeNameFilter } from "@subboost/core/subscription/node-name-filter";
 import { ensureCustomRuleId } from "@subboost/core/rules/custom-rule-utils";
@@ -339,7 +340,11 @@ export function buildGenerateOptionsFromConfig(
 
   const dialerProxyGroups = normalizeDialerProxyGroups(config.dialerProxyGroups);
   const proxyGroupOrder = normalizeProxyGroupOrder(config.proxyGroupOrder);
-  const effectiveNodes = resolveNodeNameFilter(opts.nodes, config.nodeNameFilter).effectiveNodes;
+  // 先按自动测活状态过滤（开启测活的源只保留通过节点），再应用用户名称过滤；
+  // 内部字段（_sourceIds/_health 等）保留到生成入口，供分流组高级筛选使用，
+  // YAML 序列化时会统一剥离所有 `_` 前缀键。
+  const healthFilteredNodes = filterNodesByHealth(opts.nodes, config);
+  const effectiveNodes = resolveNodeNameFilter(healthFilteredNodes, config.nodeNameFilter).effectiveNodes;
   const groupListeners = normalizeGroupListeners(config.groupListeners);
   const sanitizedNodes = stripImportedNodeControlFieldsFromList(effectiveNodes);
   const proxyGroupAdvanced = isRecord(config.proxyGroupAdvanced)

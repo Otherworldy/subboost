@@ -183,7 +183,7 @@ function HomeSurfaceInner({ adapter }: Props) {
     setSubscriptionUrl,
   });
 
-  const { handleDownload, handleGenerate, hasValidSources } = useHomeActions({
+  const { handleDownload, handleGenerate, hasValidSources, handleHealthCheckAll, healthCheckingAll } = useHomeActions({
     generatedYaml,
     generatedYamlError,
     appliedTemplateId,
@@ -209,6 +209,9 @@ function HomeSurfaceInner({ adapter }: Props) {
       hasValidSources={hasValidSources}
       handleGenerate={handleGenerate}
       handleDownload={handleDownload}
+      healthCheckingAll={healthCheckingAll}
+      handleHealthCheckAll={handleHealthCheckAll}
+      hasAnyNodes={nodes.length > 0}
       subscription={subscription}
       noticeSlot={adapter?.renderNotice?.({ user, showAiColumn })}
       renderAnnouncement={adapter?.renderAnnouncement}

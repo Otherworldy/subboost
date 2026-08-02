@@ -88,7 +88,7 @@ async function readJson(response: Response): Promise<Record<string, unknown>> {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(getCurrentAdmin).mockResolvedValue(admin);
-  vi.mocked(createSubscription).mockResolvedValue(subscription as never);
+  vi.mocked(createSubscription).mockResolvedValue({ subscription, nodes: [] } as never);
   vi.mocked(deleteSubscription).mockResolvedValue(true);
   vi.mocked(generateSubscriptionYaml).mockResolvedValue({
     yaml: "mixed-port: 7890\n",
@@ -109,7 +109,7 @@ beforeEach(() => {
     ok: true,
     body: { subscriptionId: "sub-1", nodeCount: 1 },
   } as never);
-  vi.mocked(updateSubscription).mockResolvedValue({ ...subscription, name: "Renamed" } as never);
+  vi.mocked(updateSubscription).mockResolvedValue({ subscription: { ...subscription, name: "Renamed" }, nodes: [] } as never);
 });
 
 describe("local subscription routes", () => {
@@ -121,7 +121,7 @@ describe("local subscription routes", () => {
 
     const createResponse = await pluralCollectionRoute.POST(jsonRequest("http://local.test/api/subscriptions", fullConfigPayload));
     expect(createResponse.status).toBe(201);
-    expect(await readJson(createResponse)).toEqual({ subscription });
+    expect(await readJson(createResponse)).toEqual({ subscription, nodes: [] });
     expect(createSubscription).toHaveBeenCalledWith("admin-1", fullConfigPayload);
   });
 

@@ -143,6 +143,49 @@ describe("InputSourceEditorDialog", () => {
     expect(handlers.onUpdateMeta).toHaveBeenCalledWith("source-url", { useProxyProviders: true });
   });
 
+  it("edits health check settings with validation", () => {
+    const { handlers } = renderDialog();
+
+    // 自动测活开关
+    mocks.switches[1].onCheckedChange(true);
+    expect(handlers.onUpdateMeta).toHaveBeenCalledWith("source-url", { healthCheck: { enabled: true } });
+
+    // URL 规范化（缺失协议补 https://，非法协议拒绝提交）
+    mocks.inputs[6].onChange({ target: { value: "www.google.com" } });
+    mocks.inputs[6].onBlur({ currentTarget: { value: "www.google.com" } });
+    expect(handlers.onUpdateMeta).toHaveBeenCalledWith("source-url", {
+      healthCheck: { url: "https://www.google.com/" },
+    });
+
+    mocks.inputs[6].onChange({ target: { value: "ftp://example.com" } });
+    mocks.inputs[6].onBlur({ currentTarget: { value: "ftp://example.com" } });
+    expect(handlers.onUpdateMeta).not.toHaveBeenCalledWith("source-url", {
+      healthCheck: { url: "ftp://example.com" },
+    });
+
+    // 最高延迟 / 并发：合法值提交，越界值拒绝
+    mocks.inputs[7].onChange({ target: { value: "1200" } });
+    mocks.inputs[7].onBlur({ currentTarget: { value: "1200" } });
+    expect(handlers.onUpdateMeta).toHaveBeenCalledWith("source-url", { healthCheck: { maxDelayMs: 1200 } });
+    mocks.inputs[8].onChange({ target: { value: "8" } });
+    mocks.inputs[8].onBlur({ currentTarget: { value: "8" } });
+    expect(handlers.onUpdateMeta).toHaveBeenCalledWith("source-url", { healthCheck: { concurrency: 8 } });
+
+    mocks.inputs[7].onChange({ target: { value: "99999" } });
+    mocks.inputs[7].onBlur({ currentTarget: { value: "99999" } });
+    expect(handlers.onUpdateMeta).not.toHaveBeenCalledWith("source-url", { healthCheck: { maxDelayMs: 99999 } });
+    mocks.inputs[8].onChange({ target: { value: "0" } });
+    mocks.inputs[8].onBlur({ currentTarget: { value: "0" } });
+    expect(handlers.onUpdateMeta).not.toHaveBeenCalledWith("source-url", { healthCheck: { concurrency: 0 } });
+  });
+
+  it("hides health settings for proxy-provider sources", () => {
+    const { html } = renderDialog({
+      source: { ...urlSource, useProxyProviders: true } as any,
+    });
+    expect(html).toContain("无法在 SubBoost 内测活");
+  });
+
   it("edits yaml and node text sources with a textarea", () => {
     const yaml = renderDialog({
       source: { id: "source-yaml", type: "yaml", content: "proxies: []" } as any,

@@ -236,31 +236,31 @@ describe("NodeManagementSection", () => {
     expect(mocks.confirmDialog).toHaveBeenCalledWith(expect.objectContaining({ confirmText: "我已了解，开启" }));
     expect(setters[4]).toHaveBeenCalledWith(true);
 
-    renderSection({ 5: { Beta: "" } });
+    renderSection({ 6: { Beta: "" } });
     mocks.captures.nodeList.commitListenerPort("Beta");
     expect(mocks.store.setListenerPort).toHaveBeenCalledWith("Beta", null);
 
-    renderSection({ 5: { Beta: "70000" } });
+    renderSection({ 6: { Beta: "70000" } });
     mocks.captures.nodeList.commitListenerPort("Beta");
-    expect(stateMock.setters[6]).toHaveBeenCalledWith(expect.any(Function));
+    expect(stateMock.setters[7]).toHaveBeenCalledWith(expect.any(Function));
 
-    renderSection({ 5: { Beta: "7891" } });
+    renderSection({ 6: { Beta: "7891" } });
     mocks.captures.nodeList.commitListenerPort("Beta");
-    expect(stateMock.setters[6]).toHaveBeenCalledWith(expect.any(Function));
+    expect(stateMock.setters[7]).toHaveBeenCalledWith(expect.any(Function));
 
-    renderSection({ 5: { Beta: "7893" }, 6: { Beta: "old" } });
+    renderSection({ 6: { Beta: "7893" }, 7: { Beta: "old" } });
     mocks.captures.nodeList.commitListenerPort("Beta");
     expect(mocks.store.setListenerPort).toHaveBeenCalledWith("Beta", 7893);
     expect(mocks.interactions.listenerPortConfigured).toHaveBeenCalledWith({ mode: "advanced" });
 
     mocks.store.listenerPorts = {};
-    renderSection({ 5: {}, 6: {} });
+    renderSection({ 6: {}, 7: {} });
     mocks.captures.nodeList.commitListenerPort("NoPort");
     expect(mocks.store.setListenerPort).toHaveBeenCalledWith("NoPort", null);
 
     mocks.captures.bulkDialog.onClearListenerPortUiState([" Beta ", "Beta", "", "[HK] Alpha"]);
-    expect(stateMock.setters[5]).toHaveBeenCalledWith(expect.any(Function));
     expect(stateMock.setters[6]).toHaveBeenCalledWith(expect.any(Function));
+    expect(stateMock.setters[7]).toHaveBeenCalledWith(expect.any(Function));
   });
 
   it("covers listener-port warning storage and switch edge cases", async () => {
@@ -304,8 +304,8 @@ describe("NodeManagementSection", () => {
     result = renderSection({ 4: true, 5: { Beta: "7890" }, 6: { Beta: "bad" } });
     await mocks.captures.switch.onCheckedChange(false);
     expect(result.setters[4]).toHaveBeenCalledWith(false);
-    expect(result.setters[5]).toHaveBeenCalledWith({});
     expect(result.setters[6]).toHaveBeenCalledWith({});
+    expect(result.setters[7]).toHaveBeenCalledWith({});
   });
 
   it("covers search, bulk dialog opening, and extra name parsing edges", () => {
@@ -403,7 +403,7 @@ describe("NodeManagementSection", () => {
     );
     expect(autoProcessingButton.disabled).not.toBe(true);
     autoProcessingButton.onClick();
-    expect(setters[8]).toHaveBeenCalledWith(true);
+    expect(setters[9]).toHaveBeenCalledWith(true);
 
     mocks.captures.autoProcessingDialog.onSave({
       enabled: true,
@@ -484,12 +484,12 @@ describe("NodeManagementSection", () => {
 
     mocks.captures.bulkDialog.onClearListenerPortUiState([]);
     mocks.captures.bulkDialog.onClearListenerPortUiState(["", "  "]);
-    expect(stateMock.setters[5]).not.toHaveBeenCalled();
     expect(stateMock.setters[6]).not.toHaveBeenCalled();
+    expect(stateMock.setters[7]).not.toHaveBeenCalled();
 
     mocks.captures.bulkDialog.onClearListenerPortUiState(["Unknown"]);
-    const unchangedDrafts = stateMock.setters[5].mock.calls.at(-1)?.[0]({ Beta: "7890" });
-    const unchangedErrors = stateMock.setters[6].mock.calls.at(-1)?.[0]({ Beta: "bad" });
+    const unchangedDrafts = stateMock.setters[6].mock.calls.at(-1)?.[0]({ Beta: "7890" });
+    const unchangedErrors = stateMock.setters[7].mock.calls.at(-1)?.[0]({ Beta: "bad" });
     expect(unchangedDrafts).toEqual({ Beta: "7890" });
     expect(unchangedErrors).toEqual({ Beta: "bad" });
   });

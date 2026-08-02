@@ -15,6 +15,7 @@ import {
 } from "@subboost/core/subscription/node-name-filter";
 import { useConfigStore, type SubscriptionSource } from "@subboost/ui/store/config-store";
 import { useProductInteractionAdapter } from "@subboost/ui/product/interactions";
+import { showHealthRunOutcomeToast } from "@subboost/ui/product/converter/health-outcome";
 import { SectionHeader } from "../section-header";
 import { NodeManagementAutoProcessingDialog } from "./node-management/auto-processing-dialog";
 import { NodeManagementBulkEditDialog } from "./node-management/bulk-edit-dialog";
@@ -124,6 +125,7 @@ export function NodeManagementSection({
   const [nameRulesOpen, setNameRulesOpen] = React.useState(false);
   const [nodeSearchKeyword, setNodeSearchKeyword] = React.useState("");
   const [listenerPortEnabled, setListenerPortEnabled] = React.useState(false);
+  const [healthCheckingNodeName, setHealthCheckingNodeName] = React.useState<string | null>(null);
   const interactions = useProductInteractionAdapter();
 
   const [listenerPortDrafts, setListenerPortDrafts] = React.useState<Record<string, string>>({});
@@ -235,6 +237,19 @@ export function NodeManagementSection({
         item.originName.toLowerCase().includes(keyword)
     );
   }, [deletedMarkedNodes, nodeSearchKeyword]);
+
+  const handleHealthCheckNode = React.useCallback(
+    async (nodeName: string) => {
+      setHealthCheckingNodeName(nodeName);
+      try {
+        const outcome = await useConfigStore.getState().runHealthCheck({ kind: "node", nodeName });
+        showHealthRunOutcomeToast(outcome);
+      } finally {
+        setHealthCheckingNodeName((current) => (current === nodeName ? null : current));
+      }
+    },
+    []
+  );
 
   const getNodeSourceIds = React.useCallback((node: unknown): string[] => {
     if (!node || typeof node !== "object") return [];
@@ -582,6 +597,8 @@ export function NodeManagementSection({
             setNodeOrder={setEffectiveNodeOrder}
             moveNode={moveEffectiveNode}
             isListenerPortVisible={isListenerPortVisible}
+            healthCheckingNodeName={healthCheckingNodeName}
+            onHealthCheckNode={handleHealthCheckNode}
             removeNode={removeNode}
             restoreDeletedNode={restoreDeletedNode}
           />

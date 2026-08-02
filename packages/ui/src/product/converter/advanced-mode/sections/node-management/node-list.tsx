@@ -1,13 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { Check, ChevronDown, ChevronUp, Pencil, RotateCcw, Trash2, X } from "lucide-react";
+import { Activity, Check, ChevronDown, ChevronUp, Loader2, Pencil, RotateCcw, Trash2, X } from "lucide-react";
 import { Badge } from "@subboost/ui/components/ui/badge";
 import { IconButton } from "@subboost/ui/components/ui/icon-button";
 import { Input } from "@subboost/ui/components/ui/input";
 import { ProtocolBadge } from "@subboost/ui/components/ui/protocol-badge";
 import { toast } from "@subboost/ui/components/ui/toaster";
 import { formatNodeNameFromTemplate } from "@subboost/core/node-name-template";
+import { summarizeNodeHealth } from "@subboost/core/subscription/node-health";
 import { cn } from "@subboost/ui/lib/utils";
 import type { ParsedNode } from "@subboost/core/types/node";
 
@@ -48,6 +49,8 @@ export function NodeManagementNodeList({
   setNodeOrder,
   moveNode,
   isListenerPortVisible,
+  healthCheckingNodeName,
+  onHealthCheckNode,
   removeNode,
   restoreDeletedNode,
 }: {
@@ -75,6 +78,8 @@ export function NodeManagementNodeList({
   setNodeOrder: (nodeName: string, order: number) => void;
   moveNode: (nodeName: string, direction: "up" | "down") => void;
   isListenerPortVisible: boolean;
+  healthCheckingNodeName: string | null;
+  onHealthCheckNode: (nodeName: string) => void;
   removeNode: (nodeName: string) => void;
   restoreDeletedNode: (originName: string) => void;
 }) {
@@ -191,6 +196,51 @@ export function NodeManagementNodeList({
                             </IconButton>
                           )}
                         </span>
+                        {(() => {
+                          const summary = summarizeNodeHealth(node);
+                          if (summary.status === "untested") return null;
+                          const label =
+                            summary.status === "ok"
+                              ? `${summary.delayMs}ms`
+                              : summary.status === "fail"
+                                ? "失败"
+                                : "不支持";
+                          const color =
+                            summary.status === "ok"
+                              ? "text-emerald-300"
+                              : summary.status === "fail"
+                                ? "text-red-400"
+                                : "text-white/40";
+                          return (
+                            <span
+                              className={`text-[10px] font-mono whitespace-nowrap flex-shrink-0 ${color}`}
+                              title={
+                                summary.checkedAt
+                                  ? `最近测活：${new Date(summary.checkedAt).toLocaleString()}`
+                                  : undefined
+                              }
+                            >
+                              {label}
+                            </span>
+                          );
+                        })()}
+                        <IconButton
+                          label={
+                            healthCheckingNodeName === node.name
+                              ? "测活中..."
+                              : "测活该节点"
+                          }
+                          variant="ghost"
+                          onClick={() => onHealthCheckNode(node.name)}
+                          disabled={healthCheckingNodeName !== null}
+                          className="h-6 w-6 flex-shrink-0 p-1 text-white/40 transition-colors hover:bg-white/5 hover:text-emerald-300 disabled:opacity-60"
+                        >
+                          {healthCheckingNodeName === node.name ? (
+                            <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+                          ) : (
+                            <Activity className="h-3 w-3" aria-hidden="true" />
+                          )}
+                        </IconButton>
                         {isListenerPortVisible && (
                           <>
                             <span className="text-[10px] text-white/40 whitespace-nowrap">监听端口:</span>

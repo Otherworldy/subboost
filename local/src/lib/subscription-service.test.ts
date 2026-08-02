@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   buildManualRefreshSuccessResponseBody: vi.fn(),
   importSourceUrlDirect: vi.fn(),
   fetchSourceUserInfoHeadersDirect: vi.fn(),
+  runMihomoHealthCheck: vi.fn(),
   getAppUrl: vi.fn(),
   prisma: {
     subscription: {
@@ -64,6 +65,10 @@ vi.mock("@subboost/server-core/subscription", async (importOriginal) => {
     refreshNodeSnapshot: mocks.refreshNodeSnapshot,
   };
 });
+
+vi.mock("./mihomo-health-check", () => ({
+  runMihomoHealthCheck: mocks.runMihomoHealthCheck,
+}));
 
 vi.mock("./crypto", () => ({
   encryptJson: (value: unknown) => JSON.stringify(value),
@@ -183,6 +188,13 @@ describe("local subscription service", () => {
       headers: { "subscription-userinfo": "upload=1; total=2048" },
     });
     mocks.fetchSourceUserInfoHeadersDirect.mockResolvedValue({ "subscription-userinfo": "upload=1; total=2048" });
+    mocks.runMihomoHealthCheck.mockImplementation(async ({ nodes }: { nodes: Array<{ name: string }> }) => {
+      const results = new Map<string, { status: "ok"; delayMs: number; checkedAt: string }>();
+      for (const item of nodes) {
+        results.set(item.name, { status: "ok", delayMs: 100, checkedAt: "2026-06-01T00:00:00.000Z" });
+      }
+      return results;
+    });
   });
 
   it("formats subscription summaries and details from encrypted fields", () => {
@@ -244,6 +256,93 @@ describe("local subscription service", () => {
     });
   });
 
+  it("runs immediate health checks before persisting and aborts on kernel failure", async () => {
+    const healthSource = {
+      id: "s1",
+      type: "nodes",
+      content: "trojan://secret@example.com:443#Node",
+      healthCheck: { enabled: true, maxDelayMs: 1500 },
+    };
+    const healthNode = { ...node("Health A"), _sourceIds: ["s1"] };
+
+    await expect(
+      createSubscription("owner-1", {
+        name: "Health",
+        nodes: [healthNode],
+        config: { sources: [healthSource] },
+      })
+    ).resolves.toMatchObject({
+      subscription: { name: "Created" },
+      nodes: [expect.objectContaining({ name: "Health A" })],
+    });
+
+    expect(mocks.runMihomoHealthCheck).toHaveBeenCalledTimes(1);
+    expect(mocks.runMihomoHealthCheck).toHaveBeenCalledWith(
+      expect.objectContaining({ config: expect.objectContaining({ enabled: true, maxDelayMs: 1500 }) })
+    );
+    expect(mocks.prisma.subscription.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        encryptedNodes: expect.stringContaining('"_health"'),
+      }),
+      include: { autoUpdateState: true },
+    });
+
+    // 内核系统性失败：不写入记录
+    mocks.runMihomoHealthCheck.mockRejectedValueOnce(new Error("未找到 mihomo 内核"));
+    await expect(
+      createSubscription("owner-1", {
+        name: "Broken kernel",
+        nodes: [healthNode],
+        config: { sources: [healthSource] },
+      })
+    ).rejects.toThrow("未找到 mihomo 内核");
+    expect(mocks.prisma.subscription.create).toHaveBeenCalledTimes(1);
+
+    // 更新路径同样先测后写
+    mocks.prisma.subscription.findFirst.mockResolvedValueOnce(
+      row({ encryptedNodes: JSON.stringify([healthNode]) })
+    );
+    await expect(
+      updateSubscription("owner-1", "sub-1", {
+        name: "Updated health",
+        config: { sources: [healthSource] },
+      })
+    ).resolves.toMatchObject({ subscription: { name: "Updated" } });
+    expect(mocks.runMihomoHealthCheck).toHaveBeenCalledTimes(3);
+
+    mocks.prisma.subscription.findFirst.mockResolvedValueOnce(
+      row({ encryptedNodes: JSON.stringify([healthNode]) })
+    );
+    mocks.runMihomoHealthCheck.mockRejectedValueOnce(new Error("内核启动失败"));
+    await expect(
+      updateSubscription("owner-1", "sub-1", {
+        name: "Broken update",
+        config: { sources: [healthSource] },
+      })
+    ).rejects.toThrow("内核启动失败");
+    expect(mocks.runMihomoHealthCheck).toHaveBeenCalledTimes(4);
+  });
+
+  it("refreshes subscriptions with health callbacks wired through", async () => {
+    mocks.refreshNodeSnapshot.mockResolvedValueOnce({
+      nodes: [node("Fresh")],
+      savedSources: [{ id: "source-1", type: "url", content: "https://example.com/sub" }],
+      subscriptionInfo: {},
+    });
+    mocks.prepareRefreshCacheResult.mockReturnValueOnce({
+      ok: true,
+      nodeCount: 1,
+      cacheEntry: { nodes: [node("Fresh")], subscriptionInfo: {}, generatedYaml: "yaml" },
+      generatedYaml: "yaml",
+    });
+
+    await refreshSubscription("owner-1", "sub-1");
+
+    const snapshotOptions = mocks.refreshNodeSnapshot.mock.calls[0][0];
+    expect(typeof snapshotOptions.runHealthCheck).toBe("function");
+    expect(snapshotOptions.fetchUrlNodes).toBeTypeOf("function");
+  });
+
   it("lists, gets, and deletes subscriptions through prisma", async () => {
     await expect(listSubscriptions("owner-1")).resolves.toHaveLength(1);
     expect(mocks.prisma.subscription.findMany).toHaveBeenCalledWith({
@@ -286,7 +385,7 @@ describe("local subscription service", () => {
         },
         smartNodeMatchingEnabled: false,
       })
-    ).resolves.toMatchObject({ name: "Created" });
+    ).resolves.toMatchObject({ subscription: { name: "Created" } });
 
     expect(mocks.prisma.subscription.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -392,14 +491,19 @@ describe("local subscription service", () => {
           nodeNameFilter: { enabled: true, excludeRegexes: ["套餐到期"] },
         },
       })
-    ).resolves.toMatchObject({ name: "Created" });
+    ).resolves.toMatchObject({ subscription: { name: "Created" } });
   });
 
   it("updates subscriptions and preserves existing values when fields are omitted", async () => {
-    await expect(updateSubscription("owner-1", "missing", { name: "A" })).resolves.toMatchObject({ id: "sub-1" });
+    await expect(updateSubscription("owner-1", "missing", { name: "A" })).resolves.toMatchObject({
+      subscription: { id: "sub-1" },
+    });
 
     mocks.prisma.subscription.findFirst.mockResolvedValueOnce(null);
-    await expect(updateSubscription("owner-1", "missing", { name: "A" })).resolves.toBeNull();
+    await expect(updateSubscription("owner-1", "missing", { name: "A" })).resolves.toEqual({
+      subscription: null,
+      nodes: [],
+    });
 
     await expect(updateSubscription("owner-1", "sub-1", null)).rejects.toThrow("Invalid request body.");
     await expect(updateSubscription("owner-1", "sub-1", { urls: [], nodes: [] })).rejects.toThrow(
@@ -619,5 +723,9 @@ describe("local subscription service", () => {
     );
     mocks.buildProxyProvidersFromConfig.mockReturnValueOnce({ provider: { url: "https://example.com/provider.yaml" } });
     await expect(generateSubscriptionYaml("provider-only")).resolves.toMatchObject({ yaml: "mixed-port: 7890\n" });
+
+    // 原始节点存在但自动测活/用户过滤后没有可用节点：返回明确的空标记
+    mocks.buildGenerateOptionsFromConfig.mockReturnValueOnce({ nodes: [] });
+    await expect(generateSubscriptionYaml("health-empty")).resolves.toMatchObject({ isEmpty: true });
   });
 });

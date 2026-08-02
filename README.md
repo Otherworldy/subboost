@@ -18,8 +18,9 @@
 ## Highlights & Use Cases
 
 - **Subscription conversion**: Import subscription links, YAML files, node links, and other common formats.
-- **Node management**: Rename, delete, or configure listening ports for nodes in batches.
+- **Node management**: Rename, delete, or configure listening ports for nodes in batches; see the latest health-check latency per node.
 - **Node filtering**: Build `filtered proxy groups` with only selected nodes by source, region, and custom rules.
+- **Node health checks**: Powered by the mihomo kernel, with per-source auto checks and per-source / per-node / check-all manual runs; only healthy nodes are published downstream.
 - **Chained proxies**: Configure chained proxies and `relay proxy groups` visually in one click.
 - **Precise routing**: Enable more than 30 common proxy groups and over 2,000 remote rule sets.
 - **Rule management**: Reorder rules for deeper customization by advanced users.
@@ -38,6 +39,12 @@
 - Deployment docs: [One-click deployment - pulls an image to build, faster with lower requirements](https://docs.subboost.org/deploy/one-click)
 - Deployment docs: [Advanced deployment - compiles from source, slower with higher requirements](https://docs.subboost.org/deploy/advanced)
 - Configuration guide: [Clash configuration simple enough for a paramecium: configure precise routing and chained proxies from the UI in one click](https://ryanvan.com/t/topic/59?u=ryan)
+
+## Node Health Checks
+
+- Production images bundle a pinned official mihomo kernel (v1.19.28, amd64/arm64). For source builds or custom images, make sure `mihomo` is on `PATH` or point `MIHOMO_PATH` at a binary.
+- With auto health checks enabled, saving a subscription and every manual/scheduled refresh re-tests nodes; failed nodes stay in Node Management and are never published downstream.
+- If you see "mihomo kernel not found", check `MIHOMO_PATH` or the mihomo binary inside the image.
 
 ## Development Notes
 

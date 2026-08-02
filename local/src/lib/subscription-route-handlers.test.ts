@@ -83,9 +83,9 @@ describe("local subscription route handlers", () => {
     });
 
     mocks.readJsonBody.mockResolvedValueOnce({ ok: true, value: { name: "A" } });
-    mocks.createSubscription.mockResolvedValueOnce({ id: "sub-1" });
+    mocks.createSubscription.mockResolvedValueOnce({ subscription: { id: "sub-1" }, nodes: [{}] });
     await expect(createSubscriptionResponse(request)).resolves.toEqual({
-      body: { subscription: { id: "sub-1" } },
+      body: { subscription: { id: "sub-1" }, nodes: [{}] },
       status: 201,
     });
     expect(mocks.createSubscription).toHaveBeenCalledWith("admin-1", { name: "A" });
@@ -116,14 +116,14 @@ describe("local subscription route handlers", () => {
     });
 
     mocks.readJsonBody.mockResolvedValueOnce({ ok: true, value: { name: "B" } });
-    mocks.updateSubscription.mockResolvedValueOnce({ id: "sub-1", name: "B" });
+    mocks.updateSubscription.mockResolvedValueOnce({ subscription: { id: "sub-1", name: "B" }, nodes: [] });
     await expect(updateSubscriptionResponse(request, "sub-1")).resolves.toEqual({
-      body: { subscription: { id: "sub-1", name: "B" } },
+      body: { subscription: { id: "sub-1", name: "B" }, nodes: [] },
       status: 200,
     });
 
     mocks.readJsonBody.mockResolvedValueOnce({ ok: true, value: { name: "B" } });
-    mocks.updateSubscription.mockResolvedValueOnce(null);
+    mocks.updateSubscription.mockResolvedValueOnce({ subscription: null, nodes: [] });
     await expect(updateSubscriptionResponse(request, "missing")).resolves.toEqual({
       message: "Subscription not found.",
       code: "NOT_FOUND",

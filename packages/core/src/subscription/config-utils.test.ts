@@ -157,6 +157,39 @@ describe("subscription config utils", () => {
     expect(options.proxyGroupOrder).toEqual(["auto"]);
   });
 
+  it("filters nodes by health before applying the user name filter", () => {
+    const failed = node({
+      name: "Failed",
+      _sourceIds: ["auto"],
+      _health: { auto: { status: "fail", checkedAt: "t1" } },
+    });
+    const passed = node({
+      name: "Passed HK",
+      _sourceIds: ["auto"],
+      _health: { auto: { status: "ok", delayMs: 100, checkedAt: "t1" } },
+    });
+    const untested = node({ name: "Untested", _sourceIds: ["auto"] });
+    const fromPlainSource = node({
+      name: "Plain",
+      _sourceIds: ["manual"],
+      _health: { auto: { status: "fail", checkedAt: "t1" } },
+    });
+
+    const options = buildGenerateOptionsFromConfig(
+      {
+        sources: [
+          { id: "auto", type: "url", content: "https://example.com/a", healthCheck: { enabled: true } },
+          { id: "manual", type: "url", content: "https://example.com/b" },
+        ],
+        nodeNameFilter: { enabled: true, excludeRegexes: ["^hk"] },
+      },
+      { nodes: [failed, passed, untested, fromPlainSource] }
+    );
+
+    // 失败节点被自动测活排除；未测节点（草稿）仍可见；非测活来源不受影响；名称过滤最后生效
+    expect(options.nodes.map((n) => n.name)).toEqual(["Passed HK", "Untested", "Plain"]);
+  });
+
   it("generates from effective nodes while matching persisted original names", () => {
     const kept = node({ name: "Singapore", _originName: "SG Premium" });
     const excluded = node({ name: "Pinned Hong Kong", _originName: "HK IPLC" });
@@ -171,6 +204,7 @@ describe("subscription config utils", () => {
     );
 
     expect(options.nodes).toHaveLength(1);
+    // 生成入口保留内部字段供分流组高级筛选使用；YAML 序列化时统一剥离
     expect(options.nodes[0]).toMatchObject({
       name: "Singapore",
       _originName: "SG Premium",

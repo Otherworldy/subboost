@@ -109,6 +109,93 @@ describe("normalizeSavedSourcesForPersistence", () => {
     ).toEqual(["same", "same-2"]);
   });
 
+  it("preserves normalized health check settings for all source types", () => {
+    expect(
+      normalizeSavedSourcesForPersistence([
+        {
+          id: "url-src",
+          type: "url",
+          content: "https://example.com/sub",
+          healthCheck: {
+            enabled: true,
+            url: "www.google.com",
+            maxDelayMs: 1200,
+            concurrency: 8,
+          },
+        },
+        {
+          id: "yaml-src",
+          type: "yaml",
+          content: "proxies: []",
+          healthCheck: { enabled: true },
+        },
+        {
+          id: "nodes-src",
+          type: "nodes",
+          content: "trojan://secret@example.com:443#Node",
+          healthCheck: { enabled: true },
+        },
+      ])
+    ).toEqual([
+      {
+        id: "url-src",
+        type: "url",
+        content: "https://example.com/sub",
+        healthCheck: {
+          enabled: true,
+          url: "https://www.google.com/",
+          maxDelayMs: 1200,
+          concurrency: 8,
+        },
+      },
+      {
+        id: "yaml-src",
+        type: "yaml",
+        content: "proxies: []",
+        healthCheck: { enabled: true },
+      },
+      {
+        id: "nodes-src",
+        type: "nodes",
+        content: "trojan://secret@example.com:443#Node",
+        healthCheck: { enabled: true },
+      },
+    ]);
+  });
+
+  it("drops invalid health check values and clears it in proxy-providers mode", () => {
+    expect(
+      normalizeSavedSourcesForPersistence([
+        {
+          id: "bad",
+          type: "nodes",
+          content: "trojan://secret@example.com:443#Node",
+          healthCheck: { enabled: true, url: "ftp://example.com", maxDelayMs: 5, concurrency: 500 },
+        },
+        {
+          id: "provider",
+          type: "url",
+          content: "https://example.com/sub",
+          useProxyProviders: true,
+          healthCheck: { enabled: true, url: "https://www.google.com" },
+        },
+      ])
+    ).toEqual([
+      {
+        id: "bad",
+        type: "nodes",
+        content: "trojan://secret@example.com:443#Node",
+        healthCheck: { enabled: true },
+      },
+      {
+        id: "provider",
+        type: "url",
+        content: "https://example.com/sub",
+        useProxyProviders: true,
+      },
+    ]);
+  });
+
   it("drops empty or invalid source subscription userinfo", () => {
     expect(
       normalizeSavedSourcesForPersistence([

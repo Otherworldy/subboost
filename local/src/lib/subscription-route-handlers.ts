@@ -23,8 +23,8 @@ export async function createSubscriptionResponse(request: Request) {
     if (!parsedBody.ok) return jsonBodyError(parsedBody);
 
     try {
-      const subscription = await createSubscription(admin.id, parsedBody.value);
-      return json({ subscription }, 201);
+      const result = await createSubscription(admin.id, parsedBody.value);
+      return json({ subscription: result.subscription, nodes: result.nodes }, 201);
     } catch (error) {
       return apiError(error instanceof Error ? error.message : "Unable to create subscription.", "BAD_REQUEST", 400);
     }
@@ -49,9 +49,9 @@ export async function updateSubscriptionResponse(request: Request, id: string) {
     }
 
     try {
-      const subscription = await updateSubscription(admin.id, id, body);
-      if (!subscription) return apiError("Subscription not found.", "NOT_FOUND", 404);
-      return json({ subscription });
+      const result = await updateSubscription(admin.id, id, body);
+      if (!result.subscription) return apiError("Subscription not found.", "NOT_FOUND", 404);
+      return json({ subscription: result.subscription, nodes: result.nodes });
     } catch (error) {
       return apiError(error instanceof Error ? error.message : "Unable to update subscription.", "BAD_REQUEST", 400);
     }

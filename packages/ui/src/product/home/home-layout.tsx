@@ -3,6 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import {
+  Activity,
   Download,
   AlertTriangle,
   ExternalLink,
@@ -75,6 +76,9 @@ type Props = {
 
   handleGenerate: (mode: ProductMode) => void;
   handleDownload: (mode: ProductMode) => void;
+  healthCheckingAll: boolean;
+  handleHealthCheckAll: () => void;
+  hasAnyNodes: boolean;
 
   subscription: SubscriptionLinkState;
   noticeSlot?: React.ReactNode;
@@ -104,6 +108,9 @@ export function HomeLayout({
   hasValidSources,
   handleGenerate,
   handleDownload,
+  healthCheckingAll,
+  handleHealthCheckAll,
+  hasAnyNodes,
   subscription,
   noticeSlot,
   renderAnnouncement,
@@ -315,6 +322,20 @@ export function HomeLayout({
                 </TabsContent>
               </CardContent>
               <CardFooter className="justify-center gap-2 flex-shrink-0 pt-3 flex-row flex-wrap">
+                <Button
+                  className="h-10"
+                  variant="outline"
+                  disabled={!hasAnyNodes || healthCheckingAll}
+                  onClick={() => void handleHealthCheckAll()}
+                  title="用 mihomo 内核测活当前配置的全部节点（不受自动开关限制）"
+                >
+                  {healthCheckingAll ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Activity className="mr-2 h-4 w-4" />
+                  )}
+                  全部测活
+                </Button>
                 <Button
                   className="h-10"
                   disabled={!generatedYaml || Boolean(generatedYamlError)}

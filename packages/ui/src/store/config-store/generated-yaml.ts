@@ -1,5 +1,6 @@
 import { generateClashYaml } from "@subboost/core/generator";
 import { stripImportedNodeControlFieldsFromList } from "@subboost/core/subscription/imported-node-controls";
+import { filterNodesByHealth } from "@subboost/core/subscription/node-health";
 import { resolveNodeNameFilter } from "@subboost/core/subscription/node-name-filter";
 import type { ParsedNode } from "@subboost/core/types/node";
 import type { ConfigState } from "./definitions";
@@ -90,7 +91,9 @@ export function computeGeneratedYamlResult(state: ConfigState): GeneratedYamlRes
   const proxyProviders = buildProxyProvidersFromSources(state);
 
   try {
-    const { effectiveNodes } = resolveNodeNameFilter(state.nodes, state.nodeNameFilter);
+    // 与后端共享同一过滤规则：开启自动测活的源只保留通过节点，再应用用户名称过滤
+    const healthFilteredNodes = filterNodesByHealth(state.nodes, { sources: state.sources });
+    const { effectiveNodes } = resolveNodeNameFilter(healthFilteredNodes, state.nodeNameFilter);
     const hasPreviewContent = effectiveNodes.length > 0 || Boolean(proxyProviders);
     const yaml = generateClashYaml(
       buildGenerateClashYamlOptions(state, proxyProviders, effectiveNodes)

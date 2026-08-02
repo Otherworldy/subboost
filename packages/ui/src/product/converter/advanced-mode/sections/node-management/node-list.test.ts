@@ -8,9 +8,11 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("lucide-react", () => ({
+  Activity: () => React.createElement("span", null, "Activity"),
   Check: () => React.createElement("span", null, "Check"),
   ChevronDown: () => React.createElement("span", null, "ChevronDown"),
   ChevronUp: () => React.createElement("span", null, "ChevronUp"),
+  Loader2: () => React.createElement("span", null, "Loader2"),
   Pencil: () => React.createElement("span", null, "Pencil"),
   RotateCcw: () => React.createElement("span", null, "RotateCcw"),
   Trash2: () => React.createElement("span", null, "Trash2"),
@@ -110,6 +112,8 @@ function makeProps(overrides: Partial<React.ComponentProps<typeof NodeManagement
     setNodeOrder: vi.fn(),
     moveNode: vi.fn(),
     isListenerPortVisible: true,
+    healthCheckingNodeName: null,
+    onHealthCheckNode: vi.fn(),
     removeNode: vi.fn(),
     restoreDeletedNode: vi.fn(),
     ...overrides,
@@ -129,6 +133,50 @@ afterEach(() => {
 });
 
 describe("NodeManagementNodeList", () => {
+  it("renders health summaries and per-node check buttons", () => {
+    const okNode = {
+      ...alpha,
+      _health: { s1: { status: "ok", delayMs: 123, checkedAt: "2026-06-01T00:00:00.000Z" } },
+    };
+    const failNode = {
+      ...beta,
+      _health: { s1: { status: "fail", checkedAt: "2026-06-01T00:00:00.000Z" } },
+    };
+    const unsupportedNode = {
+      name: "Gamma",
+      type: "direct",
+      _health: { s1: { status: "unsupported", checkedAt: "2026-06-01T00:00:00.000Z" } },
+    };
+    const onHealthCheckNode = vi.fn();
+    const html = renderToStaticMarkup(
+      React.createElement(NodeManagementNodeList, {
+        ...makeProps({
+          nodes: [okNode, failNode, unsupportedNode],
+          visibleNodes: [okNode, failNode, unsupportedNode],
+          onHealthCheckNode,
+        }),
+      })
+    );
+
+    expect(html).toContain("123ms");
+    expect(html).toContain("失败");
+    expect(html).toContain("不支持");
+    expect(html).not.toContain("测活中");
+  });
+
+  it("shows a loading state and blocks other checks while one node is testing", () => {
+    const onHealthCheckNode = vi.fn();
+    const html = renderToStaticMarkup(
+      React.createElement(NodeManagementNodeList, {
+        ...makeProps({
+          healthCheckingNodeName: alpha.name,
+          onHealthCheckNode,
+        }),
+      })
+    );
+    expect(html).toContain("测活中");
+  });
+
   it("renders empty and search-empty states", () => {
     expect(
       renderToStaticMarkup(

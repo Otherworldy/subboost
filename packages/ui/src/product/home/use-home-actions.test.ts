@@ -34,6 +34,7 @@ const mocks = vi.hoisted(() => {
 vi.mock("react", () => ({
   useCallback: mocks.useCallback,
   useMemo: mocks.useMemo,
+  useState: vi.fn((initial: unknown) => [initial, vi.fn()]),
 }));
 
 vi.mock("@subboost/ui/product/interactions", () => ({
@@ -102,6 +103,43 @@ describe("useHomeActions", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it("runs the overall health check and reports the summary", async () => {
+    const runHealthCheck = vi.fn().mockResolvedValue({
+      ok: true,
+      summary: { tested: 3, ok: 2, fail: 1, unsupported: 0 },
+    });
+    mocks.bag.storeState = {
+      ...mocks.bag.storeState,
+      runHealthCheck,
+    };
+    mocks.useConfigStore.mockReturnValue(mocks.bag.storeState);
+
+    const { handleHealthCheckAll, healthCheckingAll } = useRenderedHook({ nodes: [{ name: "A" }] });
+    expect(healthCheckingAll).toBe(false);
+
+    const promise = handleHealthCheckAll();
+    await promise;
+
+    expect(runHealthCheck).toHaveBeenCalledWith({ kind: "all" });
+    expect(mocks.toast).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "测活完成：2/3 个节点通过", variant: "warning" })
+    );
+  });
+
+  it("warns when there are no nodes to check", async () => {
+    const runHealthCheck = vi.fn();
+    mocks.bag.storeState = { ...mocks.bag.storeState, runHealthCheck };
+    mocks.useConfigStore.mockReturnValue(mocks.bag.storeState);
+
+    const { handleHealthCheckAll } = useRenderedHook({ nodes: [] });
+    await handleHealthCheckAll();
+
+    expect(runHealthCheck).not.toHaveBeenCalled();
+    expect(mocks.toast).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "暂无节点可测活，请先导入节点", variant: "warning" })
+    );
   });
 
   it("downloads generated YAML and records the interaction", () => {

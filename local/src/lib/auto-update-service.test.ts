@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
     subscription: {
       findMany: vi.fn(),
       updateMany: vi.fn(),
+      update: vi.fn(),
     },
     subscriptionAutoUpdateState: {
       upsert: vi.fn(),
@@ -220,8 +221,7 @@ describe("local subscription auto update service", () => {
   it("captures unexpected failures and keeps the cron summary going", async () => {
     mocks.readSubscriptionSecrets.mockImplementationOnce(() => {
       throw new Error("decrypt failed");
-    });
-    mocks.prisma.$transaction.mockRejectedValueOnce(new Error("state write failed"));
+    });    mocks.prisma.$transaction.mockRejectedValueOnce(new Error("state write failed"));
 
     await expect(runLocalSubscriptionAutoUpdateCron(now)).resolves.toEqual(
       expect.objectContaining({ outcomes: [{ kind: "failed", subscriptionId: "sub-1" }] })
@@ -237,6 +237,23 @@ describe("local subscription auto update service", () => {
     expect(console.error).toHaveBeenCalledWith(
       "[local-subscription-cron] failed",
       expect.objectContaining({ subscriptionId: "sub-1", message: "unexpected" })
+    );
+  });
+
+  it("keeps the previous snapshot when the mihomo kernel fails systematically", async () => {
+    mocks.refreshNodeSnapshot.mockRejectedValueOnce(new Error("未找到 mihomo 内核"));
+
+    await expect(runLocalSubscriptionAutoUpdateCron(now)).resolves.toEqual(
+      expect.objectContaining({ outcomes: [{ kind: "failed", subscriptionId: "sub-1" }] })
+    );
+
+    // 失败路径只写自动更新状态（updateMany），不会用任何新快照覆盖 encryptedNodes/encryptedConfig
+    expect(mocks.prisma.subscription.update).not.toHaveBeenCalled();
+    expect(mocks.encryptJson).not.toHaveBeenCalledWith(expect.objectContaining({ nodes: expect.anything() }));
+    expect(mocks.resolveAutomaticRefreshUnexpectedFailureCompletion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        error: expect.objectContaining({ message: "未找到 mihomo 内核" }),
+      })
     );
   });
 

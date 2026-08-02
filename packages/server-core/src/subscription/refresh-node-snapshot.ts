@@ -11,6 +11,15 @@ import {
   prepareSourceParsedNodes,
 } from "@subboost/core/subscription/source-node-refresh";
 import {
+  applyNodeHealthResults,
+  getNodeHealthResults,
+  resolveSourceHealthCheck,
+  stripNodeHealthResultsForSource,
+  withoutNodeHealthResultsForSources,
+  type NodeHealthResult,
+} from "@subboost/core/subscription/node-health";
+import { getNodeSourceIds } from "@subboost/core/subscription/node-source-state";
+import {
   hasSubscriptionUserInfo,
   mergeSubscriptionUserInfo,
   normalizeSubscriptionUserInfo,
@@ -58,6 +67,8 @@ export type RefreshNodeSnapshotOptions = {
   storedNodes: ParsedNode[];
   fetchUrlNodes: (source: SavedSource) => Promise<UrlNodeFetchResult>;
   fetchUrlUserInfo?: (source: SavedSource) => Promise<Record<string, string> | undefined>;
+  // 自动测活：返回按节点名（订阅状态内唯一）的测活结果；未提供或源未开启时跳过
+  runHealthCheck?: (params: { source: SavedSource; nodes: ParsedNode[] }) => Promise<Map<string, NodeHealthResult>>;
 };
 
 export type RefreshNodeSnapshotResult = {
@@ -128,6 +139,11 @@ export async function refreshNodeSnapshot(
     .map(normalizeNodeOriginName)
     .map((node) => keepOnlyValidNodeSourceIds(node, validSourceIds))
     .filter(Boolean) as ParsedNode[];
+  // 来源已从配置中删除时，一并清掉其残留测活结果
+  currentNodes = currentNodes.map((node) => {
+    const staleIds = Object.keys(getNodeHealthResults(node)).filter((id) => !validSourceIds.has(id));
+    return staleIds.length > 0 ? withoutNodeHealthResultsForSources(node, staleIds) : node;
+  });
 
   const subscriptionInfo: SubscriptionResponseInfo = {};
   const profileWebPageUrlState: StableMetadataState = { conflicted: false };
@@ -159,6 +175,17 @@ export async function refreshNodeSnapshot(
       errorMessage,
       ...extra,
     });
+  };
+
+  // 对开启自动测活的源执行测活并把结果按来源写回节点；节点内容在合并时已刷新，
+  // 内容变化的节点不带旧结果，因此不存在过期结果残留。
+  const runSourceHealthCheck = async (source: SavedSource) => {
+    if (!resolveSourceHealthCheck(source).enabled) return;
+    if (typeof options.runHealthCheck !== "function") return;
+    const sourceNodes = currentNodes.filter((node) => getNodeSourceIds(node).includes(source.id));
+    if (sourceNodes.length === 0) return;
+    const results = await options.runHealthCheck({ source, nodes: sourceNodes });
+    currentNodes = applyNodeHealthResults(currentNodes, source.id, results);
   };
 
   const mergeResponseMetadata = (headers?: Record<string, string>) => {
@@ -207,6 +234,8 @@ export async function refreshNodeSnapshot(
         refreshedSourceCount += 1;
       }
       currentNodes = detached.nodes;
+      // proxy-providers 模式不保留该来源的测活设置与结果
+      currentNodes = stripNodeHealthResultsForSource(currentNodes, source.id);
       if (
         typeof options.fetchUrlUserInfo === "function" &&
         shouldFetchSupplementalUserInfoForSource(source)
@@ -283,6 +312,7 @@ export async function refreshNodeSnapshot(
       usedUrlFetch = true;
       refreshedSourceCount += 1;
       refreshedUrlSourceCount += 1;
+      await runSourceHealthCheck(source);
       continue;
     }
 
@@ -316,6 +346,7 @@ export async function refreshNodeSnapshot(
       currentNodes = merged.nodes;
       refreshedSourceCount += 1;
       refreshedStaticSourceCount += 1;
+      await runSourceHealthCheck(source);
     } catch (error) {
       recordFailedSource(source, error instanceof Error ? error.message : "解析失败", {
         errorCategory: "parse",

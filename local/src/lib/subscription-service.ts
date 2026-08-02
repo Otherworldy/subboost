@@ -2,6 +2,12 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { generateClashYaml } from "@subboost/core/generator";
 import { buildGenerateOptionsFromConfig, getEffectiveTestOptions } from "@subboost/core/subscription/config-utils";
 import { buildProxyProvidersFromConfig } from "@subboost/core/subscription/proxy-providers";
+import {
+  applyNodeHealthResults,
+  filterNodesByHealth,
+  resolveSourceHealthCheck,
+} from "@subboost/core/subscription/node-health";
+import { getNodeSourceIds } from "@subboost/core/subscription/node-source-state";
 import type { SubscriptionResponseInfo } from "@subboost/core/subscription/subscription-response-info";
 import type { ParsedNode } from "@subboost/core/types/node";
 import {
@@ -23,6 +29,7 @@ import { decryptJson, decryptJsonObject, encryptJson } from "./crypto";
 import { getAppUrl } from "./env";
 import { prisma } from "./prisma";
 import { fetchSourceUserInfoHeadersDirect, importSourceUrlDirect } from "./source-import";
+import { runMihomoHealthCheck } from "./mihomo-health-check";
 import { normalizeLocalAutoUpdateIntervalSeconds } from "./auto-update-policy";
 
 export const MAX_NODES_PER_SUBSCRIPTION = 10000;
@@ -95,6 +102,8 @@ export type GeneratedSubscriptionYaml = {
   cacheExpirySeconds: number;
   autoUpdateIntervalSeconds: number | null;
   isAdmin: boolean;
+  // 原始节点存在但自动测活/用户过滤后没有可用节点（下载端返回明确提示）
+  isEmpty?: boolean;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -142,7 +151,12 @@ function assertNodeNameFilterKeepsOutput(
     options.proxyProviders && Object.keys(options.proxyProviders).length > 0
   );
   if (options.nodes.length === 0 && !hasProxyProviders) {
-    throw new Error("过滤后没有可用节点");
+    // 自动测活把所有节点判为失败是合法状态（保存后页面可见、下载提示无节点）；
+    // 只有用户名称过滤把健康节点全部排除时才视为配置错误。
+    const healthFiltered = filterNodesByHealth(nodes, config);
+    if (healthFiltered.length > 0) {
+      throw new Error("过滤后没有可用节点");
+    }
   }
 }
 
@@ -195,7 +209,10 @@ export async function listSubscriptions(ownerId: string): Promise<SubscriptionSu
   return rows.map(formatSubscription);
 }
 
-export async function createSubscription(ownerId: string, body: unknown): Promise<SubscriptionSummary> {
+export async function createSubscription(
+  ownerId: string,
+  body: unknown
+): Promise<{ subscription: SubscriptionSummary; nodes: ParsedNode[] }> {
   if (!isRecord(body)) {
     throw new Error("Invalid request body.");
   }
@@ -207,7 +224,9 @@ export async function createSubscription(ownerId: string, body: unknown): Promis
   if (urls.length === 0 && nodes.length === 0) throw new Error("At least one URL or node is required.");
 
   const config = buildLocalSubscriptionConfig(body);
-  assertNodeNameFilterKeepsOutput(nodes, config);
+  // 开启自动测活的源：保存前立即测活，结果随节点一起持久化；内核系统性失败则不创建
+  const nodesWithHealth = await runSubscriptionHealthChecks(nodes, (config.sources ?? []) as SavedSource[]);
+  assertNodeNameFilterKeepsOutput(nodesWithHealth, config);
   const autoUpdateInterval = normalizeLocalAutoUpdateIntervalSeconds(body.autoUpdateInterval);
   const subscriptionInfo = normalizeSubscriptionInfoForPersistence(body.subscriptionInfo) ?? {};
 
@@ -217,20 +236,24 @@ export async function createSubscription(ownerId: string, body: unknown): Promis
       name,
       token: generateLocalSubscriptionToken(),
       encryptedUrls: encryptJson(urls),
-      encryptedNodes: encryptJson(nodes),
+      encryptedNodes: encryptJson(nodesWithHealth),
       encryptedConfig: encryptJson(config),
       encryptedSubscriptionInfo: encryptJson(subscriptionInfo),
       autoUpdateInterval,
     },
     include: { autoUpdateState: true },
   });
-  return formatSubscription(row);
+  return { subscription: formatSubscription(row), nodes: nodesWithHealth };
 }
 
-export async function updateSubscription(ownerId: string, id: string, body: unknown): Promise<SubscriptionSummary | null> {
+export async function updateSubscription(
+  ownerId: string,
+  id: string,
+  body: unknown
+): Promise<{ subscription: SubscriptionSummary | null; nodes: ParsedNode[] }> {
   if (!isRecord(body)) throw new Error("Invalid request body.");
   const current = await prisma.subscription.findFirst({ where: { id, ownerId }, include: { autoUpdateState: true } });
-  if (!current) return null;
+  if (!current) return { subscription: null, nodes: [] };
 
   const currentSecrets = readSubscriptionSecrets(current);
   const name = normalizeSubscriptionName(body.name) || current.name;
@@ -255,12 +278,16 @@ export async function updateSubscription(ownerId: string, id: string, body: unkn
     data.encryptedSubscriptionInfo = encryptJson(normalizeSubscriptionInfoForPersistence(body.subscriptionInfo) ?? {});
   }
 
+  let nodesWithHealth = nextNodes;
   if (hasUrls || hasNodes || hasConfig) {
     const nextUrls = hasUrls ? normalizeSubscriptionUrlList(body.urls) : currentSecrets.urls;
     if (nextUrls.length === 0 && nextNodes.length === 0) {
       throw new Error("At least one URL or node is required.");
     }
-    assertNodeNameFilterKeepsOutput(nextNodes, nextConfig);
+    // 开启自动测活的源：保存前立即测活，结果随节点一起持久化；内核系统性失败则不更新
+    nodesWithHealth = await runSubscriptionHealthChecks(nextNodes, (nextConfig.sources ?? []) as SavedSource[]);
+    assertNodeNameFilterKeepsOutput(nodesWithHealth, nextConfig);
+    data.encryptedNodes = encryptJson(nodesWithHealth);
   }
 
   let resetAutoUpdateState = false;
@@ -292,7 +319,7 @@ export async function updateSubscription(ownerId: string, id: string, body: unkn
       include: { autoUpdateState: true },
     });
   });
-  return formatSubscription(row);
+  return { subscription: formatSubscription(row), nodes: nodesWithHealth };
 }
 
 export async function getSubscription(ownerId: string, id: string): Promise<SubscriptionDetail | null> {
@@ -338,7 +365,28 @@ export function buildSubscriptionFetchCallbacks() {
     fetchUrlUserInfo: async (source: SavedSource) => {
       return fetchSourceUserInfoHeadersDirect(source);
     },
+    runHealthCheck: async ({ source, nodes }: { source: SavedSource; nodes: ParsedNode[] }) => {
+      return runMihomoHealthCheck({ nodes, config: resolveSourceHealthCheck(source) });
+    },
   };
+}
+
+/** 创建/更新订阅保存前，对开启自动测活的源立即测活并合并结果；内核系统性失败时抛出。 */
+async function runSubscriptionHealthChecks(
+  nodes: ParsedNode[],
+  sources: SavedSource[]
+): Promise<ParsedNode[]> {
+  let next = nodes;
+  for (const source of sources) {
+    if (source.type === "url" && source.useProxyProviders) continue;
+    const config = resolveSourceHealthCheck(source);
+    if (!config.enabled) continue;
+    const sourceNodes = next.filter((node) => getNodeSourceIds(node).includes(source.id));
+    if (sourceNodes.length === 0) continue;
+    const results = await runMihomoHealthCheck({ nodes: sourceNodes, config });
+    next = applyNodeHealthResults(next, source.id, results);
+  }
+  return next;
 }
 
 export function buildSubscriptionCacheExpiry(from: Date): Date {
@@ -443,13 +491,13 @@ export async function generateSubscriptionYaml(token: string): Promise<Generated
   const secrets = readSubscriptionSecrets(row);
   const { testUrl, testInterval } = getEffectiveTestOptions(secrets.config);
   const proxyProviders = buildProxyProvidersFromConfig(secrets.config, { testUrl, testInterval });
-  if (secrets.nodes.length === 0 && !proxyProviders) return null;
-  const yaml = generateClashYaml(
-    buildGenerateOptionsFromConfig(secrets.config, {
-      nodes: secrets.nodes,
-      proxyProviders,
-    })
-  );
+  const hasProxyProviders = Boolean(proxyProviders && Object.keys(proxyProviders).length > 0);
+  if (secrets.nodes.length === 0 && !hasProxyProviders) return null;
+  const options = buildGenerateOptionsFromConfig(secrets.config, {
+    nodes: secrets.nodes,
+    proxyProviders,
+  });
+  const yaml = generateClashYaml(options);
   await prisma.subscription.update({ where: { id: row.id }, data: { lastAccessedAt: new Date() } });
   return {
     yaml,
@@ -458,5 +506,6 @@ export async function generateSubscriptionYaml(token: string): Promise<Generated
     cacheExpirySeconds: CACHE_TTL_SECONDS,
     autoUpdateIntervalSeconds: row.autoUpdateInterval,
     isAdmin: true,
+    ...(options.nodes.length === 0 && !hasProxyProviders ? { isEmpty: true } : {}),
   };
 }

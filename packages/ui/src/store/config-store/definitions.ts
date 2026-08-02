@@ -18,6 +18,7 @@ import {
   type SubscriptionImportErrorInfo,
 } from "@subboost/core/subscription/import-error";
 import type { SubscriptionUserInfo } from "@subboost/core/subscription/subscription-userinfo";
+import type { SourceHealthCheckConfig } from "@subboost/core/subscription/node-health";
 import { tryNormalizeSubscriptionUrlInput } from "@subboost/core/subscription/url-input";
 import {
   DEFAULT_NODE_NAME_FILTER_CONFIG,
@@ -39,6 +40,15 @@ export type RuleSetDraft = Omit<CustomRuleSet, "target">;
 export type { BuiltinRuleEdits, CustomRuleSet, GroupListenerBinding, GroupListenerTarget, ProxyGroupAdvancedConfig };
 export type { DialerProxyGroup, SubBoostTemplateConfig } from "@subboost/core/types/template-config";
 export type { NodeNameFilterConfig } from "@subboost/core/subscription/node-name-filter";
+
+export type HealthCheckScope =
+  | { kind: "all" }
+  | { kind: "source"; sourceId: string }
+  | { kind: "node"; nodeName: string };
+
+export type HealthRunOutcome =
+  | { ok: true; summary: { tested: number; ok: number; fail: number; unsupported: number } }
+  | { ok: false; error: string | null };
 
 export type ConfigHistoryEntry =
   | string
@@ -80,6 +90,8 @@ export interface SubscriptionSource {
   userinfoUrl?: string;
   // 获取流量/到期元信息时使用的自定义 User-Agent（可选）
   userinfoUserAgent?: string;
+  // 自动测活设置（仅当未开启 proxy-providers 模式时生效）
+  healthCheck?: SourceHealthCheckConfig;
   // 导入状态
   parsed?: boolean;
   parsing?: boolean;
@@ -256,6 +268,10 @@ export interface ConfigActions {
   moveNode: (nodeName: string, direction: "up" | "down") => void;
   setNodeOrder: (nodeName: string, order: number, scopeNodeNames?: string[]) => void;
   setNodeNameFilter: (config: NodeNameFilterConfig) => void;
+  // 测活：把服务端返回的节点测活结果合并回当前状态
+  applyHealthResults: (nodes: ParsedNode[]) => void;
+  // 立即测活（不受自动开关限制），返回摘要或错误信息
+  runHealthCheck: (scope: HealthCheckScope) => Promise<HealthRunOutcome>;
 
   // 模板和配置
   setTemplate: (template: TemplateType) => void;

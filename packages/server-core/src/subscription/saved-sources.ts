@@ -1,5 +1,9 @@
 import { tryNormalizeSubscriptionUrlInput } from "@subboost/core/subscription/url-input";
 import {
+  normalizeSourceHealthCheck,
+  type SourceHealthCheckConfig,
+} from "@subboost/core/subscription/node-health";
+import {
   hasSubscriptionUserInfo,
   normalizeSubscriptionUserInfo,
   type SubscriptionUserInfo,
@@ -20,6 +24,8 @@ export type SavedSource = {
   lastParsedContent?: string;
   lastParsedTag?: string;
   lastParsedNameTemplate?: string;
+  // 自动测活设置；proxy-providers 模式不保存（节点不进入 SubBoost，无法测活）
+  healthCheck?: SourceHealthCheckConfig;
 };
 
 export type NormalizeSavedSourcesForPersistenceOptions = {
@@ -85,12 +91,14 @@ export function normalizeSavedSourcesForPersistence(
     const lastParsedContent = toTrimmedString(record.lastParsedContent);
     const lastParsedTag = toTrimmedString(record.lastParsedTag);
     const lastParsedNameTemplate = toTrimmedString(record.lastParsedNameTemplate);
+    const useProxyProviders = type === "url" && record.useProxyProviders === true;
+    const healthCheck = normalizeSourceHealthCheck(record.healthCheck);
 
     return {
       id: nextId(preferredId),
       type,
       content: type === "url" ? normalizeUrlContent(content) : content,
-      ...(type === "url" && record.useProxyProviders === true ? { useProxyProviders: true } : {}),
+      ...(useProxyProviders ? { useProxyProviders: true } : {}),
       ...(type === "url" && userinfoUrl ? { userinfoUrl: normalizeUrlContent(userinfoUrl) } : {}),
       ...(type === "url" && userinfoUserAgent ? { userinfoUserAgent } : {}),
       ...(subscriptionUserInfo ? { subscriptionUserInfo } : {}),
@@ -101,6 +109,8 @@ export function normalizeSavedSourcesForPersistence(
         : {}),
       ...(lastParsedTag ? { lastParsedTag } : {}),
       ...(lastParsedNameTemplate ? { lastParsedNameTemplate } : {}),
+      // proxy-providers 模式下节点不进入 SubBoost，测活设置一并清除
+      ...(!useProxyProviders && healthCheck ? { healthCheck } : {}),
     };
   };
 

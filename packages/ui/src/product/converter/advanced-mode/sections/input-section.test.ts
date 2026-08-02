@@ -86,6 +86,7 @@ vi.mock("@radix-ui/react-popover", () => ({
   Arrow: () => null,
 }));
 vi.mock("lucide-react", () => ({
+  Activity: () => null,
   AlertCircle: () => null,
   Check: () => null,
   ChevronDown: () => null,
@@ -316,7 +317,7 @@ describe("advanced mode InputSection", () => {
   it("closes the editor and re-imports only changed sources", () => {
     renderSection({
       1: "s1",
-      2: {
+      3: {
         id: "s1",
         content: "old",
         tag: "OLD",
@@ -334,7 +335,7 @@ describe("advanced mode InputSection", () => {
     mocks.store.parseSingleSource.mockClear();
     renderSection({
       1: "s1",
-      2: {
+      3: {
         id: "s1",
         content: urlSource.content,
         tag: "HK",
@@ -355,13 +356,13 @@ describe("advanced mode InputSection", () => {
     expect(mocks.store.setSources).toHaveBeenCalledWith([
       { id: "1", type: "url", content: "", nameTemplate: "[{tag}] {name}" },
     ]);
-    expect(stateMock.setters[2]).toHaveBeenCalledWith(null);
+    expect(stateMock.setters[3]).toHaveBeenCalledWith(null);
 
     mocks.store.setSources.mockClear();
     mocks.store.sources = [urlSource];
     renderSection({ 1: "s1" });
     expect(mocks.store.setSources).not.toHaveBeenCalled();
-    expect((stateMock.setters[2] as any).lastValue).toEqual({
+    expect((stateMock.setters[3] as any).lastValue).toEqual({
       id: "s1",
       content: "https://example.com/sub",
       tag: "HK",
@@ -372,8 +373,8 @@ describe("advanced mode InputSection", () => {
     });
 
     const existingSnapshot = { id: "s1", content: "same", tag: "", nameTemplate: "", useProxyProviders: false, userinfoUrl: "", userinfoUserAgent: "" };
-    renderSection({ 1: "s1", 2: existingSnapshot });
-    expect((stateMock.setters[2] as any).lastValue).toBe(existingSnapshot);
+    renderSection({ 1: "s1", 3: existingSnapshot });
+    expect((stateMock.setters[3] as any).lastValue).toBe(existingSnapshot);
 
     mocks.store.sources = [
       {
@@ -385,7 +386,7 @@ describe("advanced mode InputSection", () => {
       },
     ];
     renderSection({ 1: "s3" });
-    expect((stateMock.setters[2] as any).lastValue).toEqual({
+    expect((stateMock.setters[3] as any).lastValue).toEqual({
       id: "s3",
       content: "https://missing-meta.example/sub",
       tag: "",

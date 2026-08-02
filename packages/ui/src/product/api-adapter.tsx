@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import type { ParseResult, ParsedNode } from "@subboost/core/types/node";
+import type { NodeHealthResult, SourceHealthCheckConfig } from "@subboost/core/subscription/node-health";
 import type { RuleSetInfo } from "@subboost/core/rules/metadata";
 import type { TemplateType } from "@subboost/core/types/config";
 import { readJsonResponse } from "./client-response";
@@ -83,12 +84,48 @@ export type ProductRulesApi = {
   loadCnCandidateRules?: (request: CnCandidateRulesRequest) => Promise<CnCandidateRule[]>;
 };
 
+export type NodeHealthCheckScope =
+  | { kind: "all" }
+  | { kind: "source"; sourceId: string }
+  | { kind: "node"; nodeName: string };
+
+export type NodeHealthCheckRequest = {
+  scope: NodeHealthCheckScope;
+  nodes: ParsedNode[];
+  sources: Array<{
+    id: string;
+    type: string;
+    useProxyProviders?: boolean;
+    healthCheck?: SourceHealthCheckConfig;
+  }>;
+};
+
+export type NodeHealthCheckSummary = {
+  tested: number;
+  ok: number;
+  fail: number;
+  unsupported: number;
+};
+
+export type NodeHealthCheckResponse = {
+  nodes: Array<{ name: string; health: Record<string, NodeHealthResult> }>;
+  summary: NodeHealthCheckSummary;
+};
+
+export type NodeHealthResultEvent = (nodeName: string, sourceId: string, result: NodeHealthResult) => void;
+
+export type ProductHealthCheckApi = {
+  // onResult 在流式响应中逐个回传节点结果；不传则只在 Promise 返回时拿到汇总
+  runHealthCheck: (request: NodeHealthCheckRequest, onResult?: NodeHealthResultEvent) => Promise<NodeHealthCheckResponse>;
+};
+
 export type ProductApiAdapter = {
   sourceImport?: {
     importSource: (request: SourceImportRequest) => Promise<SourceImportResponse>;
   };
   templates?: ProductTemplateApi;
   rules?: ProductRulesApi;
+  healthCheck?: ProductHealthCheckApi;
 };
 
 export type RulesProductApiOptions = {

@@ -10,6 +10,7 @@ import { toast } from "@subboost/ui/components/ui/toaster";
 import { useProductInteractionAdapter, type ProductInteractionResult } from "@subboost/ui/product/interactions";
 import { markSourceAsPendingImport } from "@subboost/ui/product/subscription/source-import-state";
 import { moveSubscriptionSource } from "@subboost/ui/product/subscription/source-order";
+import { showHealthRunOutcomeToast } from "@subboost/ui/product/converter/health-outcome";
 
 export type SubscriptionSourcesMode = "quick" | "advanced";
 
@@ -68,6 +69,7 @@ export function useSubscriptionSourcesController({ mode }: Options) {
 
   const [showAddMenu, setShowAddMenu] = React.useState(false);
   const [expandedSourceId, setExpandedSourceId] = React.useState<string | null>(null);
+  const [healthCheckingSourceId, setHealthCheckingSourceId] = React.useState<string | null>(null);
   const expandedSource = React.useMemo(
     () => sources.find((source) => source.id === expandedSourceId) ?? null,
     [expandedSourceId, sources]
@@ -274,6 +276,25 @@ export function useSubscriptionSourcesController({ mode }: Options) {
     [interactions, mode, parseSingleSource, sources]
   );
 
+  // 手动测活不受自动开关限制；仅需该源已解析出节点
+  const handleHealthCheckSource = React.useCallback(
+    async (sourceId: string) => {
+      const sourceNodes = nodesBySourceId.get(sourceId) ?? [];
+      if (sourceNodes.length === 0) {
+        toast({ title: "该源暂无节点，请先导入后再测活", variant: "warning" });
+        return;
+      }
+      setHealthCheckingSourceId(sourceId);
+      try {
+        const outcome = await useConfigStore.getState().runHealthCheck({ kind: "source", sourceId });
+        showHealthRunOutcomeToast(outcome);
+      } finally {
+        setHealthCheckingSourceId((current) => (current === sourceId ? null : current));
+      }
+    },
+    [nodesBySourceId]
+  );
+
   return {
     addSource,
     closeExpandedSourceEditor,
@@ -281,6 +302,8 @@ export function useSubscriptionSourcesController({ mode }: Options) {
     expandedSource,
     expandedSourcePreviewName,
     handleImportSource,
+    handleHealthCheckSource,
+    healthCheckingSourceId,
     maxSourcesPerType,
     moveSource,
     nodeCount,

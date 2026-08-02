@@ -10,6 +10,7 @@ import { normalizeRuleModelFromConfig } from "@subboost/core/rules/rule-model";
 import { resolveProxyGroupAdvancedModeEnabled } from "@subboost/core/proxy-group-advanced-mode";
 import { normalizeProxyGroupAdvancedConfig } from "@subboost/core/proxy-group-advanced";
 import { tryNormalizeSubscriptionUrlInput } from "@subboost/core/subscription/url-input";
+import { normalizeSourceHealthCheck } from "@subboost/core/subscription/node-health";
 import {
   hasSubscriptionUserInfo,
   normalizeSubscriptionUserInfo,
@@ -150,6 +151,7 @@ export function useEditingSubscriptionLoader({
               const userinfoUrl = (item as any).userinfoUrl;
               const userinfoUserAgent = (item as any).userinfoUserAgent;
               const subscriptionUserInfo = normalizeSubscriptionUserInfo((item as any).subscriptionUserInfo);
+              const healthCheck = normalizeSourceHealthCheck((item as any).healthCheck);
               const lastParsedTag = (item as any).lastParsedTag;
               const lastParsedNameTemplate = (item as any).lastParsedNameTemplate;
               const normalizedContent =
@@ -173,6 +175,7 @@ export function useEditingSubscriptionLoader({
                 tag: typeof tag === "string" && tag.trim() ? tag.trim() : undefined,
                 nameTemplate: typeof nameTemplate === "string" && nameTemplate.trim() ? nameTemplate.trim() : undefined,
                 subscriptionUserInfo: hasSubscriptionUserInfo(subscriptionUserInfo) ? subscriptionUserInfo : undefined,
+                healthCheck,
                 useProxyProviders: t === "url" && useProxyProviders === true ? true : undefined,
                 userinfoUrl: normalizedUserinfoUrl,
                 userinfoUserAgent:
@@ -194,6 +197,7 @@ export function useEditingSubscriptionLoader({
               tag?: string;
               nameTemplate?: string;
               subscriptionUserInfo?: SubscriptionUserInfo;
+              healthCheck?: ReturnType<typeof normalizeSourceHealthCheck>;
               useProxyProviders?: boolean;
               userinfoUrl?: string;
               userinfoUserAgent?: string;
@@ -261,6 +265,7 @@ export function useEditingSubscriptionLoader({
               ...(typeof s.nameTemplate === "string" && s.nameTemplate.trim() ? { nameTemplate: s.nameTemplate.trim() } : {}),
               ...(hasSubscriptionUserInfo(s.subscriptionUserInfo) ? { subscriptionUserInfo: s.subscriptionUserInfo } : {}),
               ...(s.type === "url" && s.useProxyProviders ? { useProxyProviders: true } : {}),
+              ...(normalizeSourceHealthCheck(s.healthCheck) ?? {}),
               ...(s.type === "url" && typeof s.userinfoUrl === "string" && s.userinfoUrl.trim()
                 ? { userinfoUrl: tryNormalizeSubscriptionUrlInput(s.userinfoUrl) ?? s.userinfoUrl.trim() }
                 : {}),
@@ -321,6 +326,7 @@ export function useEditingSubscriptionLoader({
               ...(typeof s.nameTemplate === "string" && s.nameTemplate.trim() ? { nameTemplate: s.nameTemplate.trim() } : {}),
               ...(hasSubscriptionUserInfo(subscriptionUserInfo) ? { subscriptionUserInfo } : {}),
               ...(s.type === "url" && s.useProxyProviders ? { useProxyProviders: true } : {}),
+              ...(normalizeSourceHealthCheck(s.healthCheck) ?? {}),
               ...(s.type === "url" && typeof s.userinfoUrl === "string" && s.userinfoUrl.trim()
                 ? { userinfoUrl: tryNormalizeSubscriptionUrlInput(s.userinfoUrl) ?? s.userinfoUrl.trim() }
                 : {}),

@@ -356,6 +356,7 @@ export function useSubscriptionLink({
                   ...(s.type === "url" && typeof s.userinfoUserAgent === "string" && s.userinfoUserAgent.trim()
                     ? { userinfoUserAgent: s.userinfoUserAgent.trim() }
                     : {}),
+                  ...(s.healthCheck ? { healthCheck: s.healthCheck } : {}),
                   ...(typeof s.lastParsedTag === "string" && s.lastParsedTag.trim()
                     ? { lastParsedTag: s.lastParsedTag.trim() }
                     : {}),
@@ -435,6 +436,10 @@ export function useSubscriptionLink({
             ? data.subscription.subscriptionUrl
             : "";
         setSubscriptionUrl(url);
+        // 保存时服务端已对开启自动测活的源立即测活，把结果合并回当前编辑状态
+        if (Array.isArray(data?.nodes)) {
+          useConfigStore.getState().applyHealthResults(data.nodes as ParsedNode[]);
+        }
         if (isEditingExistingSubscription && editingSubscription && token) {
           setEditingSubscription({
             ...editingSubscription,

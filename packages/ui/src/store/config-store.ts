@@ -9,6 +9,7 @@ import { initialState } from "./config-store/definitions";
 import { computeGeneratedYamlResult } from "./config-store/generated-yaml";
 import { createSourceActions } from "./config-store/source-actions";
 import { createNodeActions } from "./config-store/actions/node-actions";
+import { createHealthActions } from "./config-store/actions/health-actions";
 import { createTemplateActions } from "./config-store/actions/template-actions";
 import { createCustomActions } from "./config-store/actions/custom-actions";
 import { createProxyGroupActions } from "./config-store/actions/proxy-group-actions";
@@ -69,6 +70,7 @@ export const useConfigStore = create<ConfigState & ConfigActions>()(
 
         ...createSourceActions(set, get, setAndGenerateConfig),
         ...createNodeActions(set, get, setAndGenerateConfig),
+        ...createHealthActions(set, get, setAndGenerateConfig),
         ...createTemplateActions(set, get, setAndGenerateConfig),
         ...createCustomActions(set, get, setAndGenerateConfig),
         ...createProxyGroupActions(set, get, setAndGenerateConfig),

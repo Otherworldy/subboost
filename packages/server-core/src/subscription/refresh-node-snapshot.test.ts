@@ -51,6 +51,116 @@ describe("refreshNodeSnapshot", () => {
     expect(result.usedUrlFetch).toBe(true);
   });
 
+  it("runs health checks for enabled sources and writes per-source results", async () => {
+    const runHealthCheck = vi.fn(async ({ source, nodes }: { source: { id: string }; nodes: ParsedNode[] }) => {
+      const results = new Map<string, { status: "ok"; delayMs: number; checkedAt: string }>();
+      for (const item of nodes) {
+        results.set(item.name, { status: "ok", delayMs: source.id === "url-src" ? 100 : 200, checkedAt: "t" });
+      }
+      return results;
+    });
+
+    const result = await refreshNodeSnapshot({
+      config: {
+        sources: [
+          {
+            id: "url-src",
+            type: "url",
+            content: "https://example.com/sub",
+            healthCheck: { enabled: true, maxDelayMs: 1500 },
+          },
+          {
+            id: "yaml-src",
+            type: "yaml",
+            content: "proxies:\n  - name: static-node\n    type: trojan\n    server: static.example.com\n    port: 443\n    password: p",
+            healthCheck: { enabled: true },
+          },
+        ],
+      },
+      urls: [],
+      storedNodes: [],
+      fetchUrlNodes: async () => ({ ok: true, nodes: [node], headers: {} }),
+      runHealthCheck,
+    });
+
+    expect(runHealthCheck).toHaveBeenCalledTimes(2);
+    expect(runHealthCheck.mock.calls[0][0].source.id).toBe("url-src");
+    expect(runHealthCheck.mock.calls[1][0].source.id).toBe("yaml-src");
+    const health = (result.nodes[0] as unknown as Record<string, unknown>)["_health"] as Record<
+      string,
+      { status: string; delayMs?: number }
+    >;
+    expect(health).toMatchObject({
+      "url-src": { status: "ok", delayMs: 100 },
+    });
+  });
+
+  it("skips health checks for disabled or proxy-provider sources", async () => {
+    const runHealthCheck = vi.fn(async () => new Map());
+    const result = await refreshNodeSnapshot({
+      config: {
+        sources: [
+          {
+            id: "disabled",
+            type: "url",
+            content: "https://example.com/disabled",
+          },
+          {
+            id: "provider",
+            type: "url",
+            content: "https://example.com/provider",
+            useProxyProviders: true,
+          },
+        ],
+      },
+      urls: [],
+      storedNodes: [
+        {
+          ...node,
+          name: "stale",
+          [SOURCE_IDS_KEY]: ["provider"],
+          _health: { provider: { status: "ok", delayMs: 1, checkedAt: "old" } },
+        } as unknown as ParsedNode,
+      ],
+      fetchUrlNodes: async () => ({ ok: true, nodes: [], headers: {} }),
+      runHealthCheck,
+    });
+
+    expect(runHealthCheck).not.toHaveBeenCalled();
+    expect(result.nodes.some((item) => item.name === "stale")).toBe(false);
+  });
+
+  it("removes health results for sources that disappeared from the config", async () => {
+    const result = await refreshNodeSnapshot({
+      config: {
+        sources: [{ id: "kept", type: "url", content: "https://example.com/kept" }],
+      },
+      urls: [],
+      storedNodes: [
+        {
+          ...node,
+          [SOURCE_IDS_KEY]: ["kept", "gone"],
+          _health: {
+            kept: { status: "ok", delayMs: 1, checkedAt: "t1" },
+            gone: { status: "fail", checkedAt: "t2" },
+          },
+        } as unknown as ParsedNode,
+      ],
+      fetchUrlNodes: async () => ({
+        ok: true,
+        nodes: [{ ...node, [SOURCE_IDS_KEY]: ["kept"] } as unknown as ParsedNode],
+        headers: {},
+      }),
+    });
+
+    expect(result.nodes).toHaveLength(1);
+    const health = (result.nodes[0] as unknown as Record<string, unknown>)["_health"] as Record<
+      string,
+      unknown
+    >;
+    expect(health).toEqual({ kept: { status: "ok", delayMs: 1, checkedAt: "t1" } });
+  });
+
   it("detaches proxy-provider source nodes and still collects supplemental userinfo", async () => {
     const fetchUrlNodes = vi.fn();
     const fetchUrlUserInfo = vi.fn(async () => ({

@@ -5,6 +5,8 @@ import { computeGeneratedYaml, computeGeneratedYamlResult } from "./generated-ya
 const mocks = vi.hoisted(() => ({
   generateClashYaml: vi.fn(),
   stripImportedNodeControlFieldsFromList: vi.fn(),
+  stripNodeHealthFieldsFromList: vi.fn(),
+  filterNodesByHealth: vi.fn(),
   resolveNodeNameFilter: vi.fn(),
 }));
 
@@ -21,6 +23,11 @@ vi.mock("@subboost/core/subscription/node-name-filter", () => ({
   resolveNodeNameFilter: mocks.resolveNodeNameFilter,
 }));
 
+vi.mock("@subboost/core/subscription/node-health", () => ({
+  filterNodesByHealth: mocks.filterNodesByHealth,
+  stripNodeHealthFieldsFromList: mocks.stripNodeHealthFieldsFromList,
+}));
+
 function createState(overrides: Record<string, unknown> = {}) {
   return {
     ...structuredClone(initialState),
@@ -33,6 +40,8 @@ describe("computeGeneratedYamlResult", () => {
     vi.clearAllMocks();
     mocks.generateClashYaml.mockReturnValue("generated yaml");
     mocks.stripImportedNodeControlFieldsFromList.mockImplementation((nodes) => nodes);
+    mocks.stripNodeHealthFieldsFromList.mockImplementation((nodes) => nodes);
+    mocks.filterNodesByHealth.mockImplementation((nodes) => nodes);
     mocks.resolveNodeNameFilter.mockImplementation((nodes) => ({
       rawNodes: nodes,
       effectiveNodes: nodes,
@@ -133,6 +142,27 @@ describe("computeGeneratedYamlResult", () => {
       expect.objectContaining({ nodes: effectiveNodes })
     );
     expect(state.nodes).toBe(rawNodes);
+  });
+
+  it("hides generated preview when automatic health checks reject every node", () => {
+    const rawNodes = [{ name: "Failed", type: "ss" }];
+    mocks.filterNodesByHealth.mockReturnValueOnce([]);
+
+    const result = computeGeneratedYamlResult(
+      createState({
+        nodes: rawNodes,
+        sources: [{ id: "auto", type: "url", content: "https://example.com/a", healthCheck: { enabled: true } }],
+      })
+    );
+
+    expect(result).toEqual({ yaml: "", error: null });
+    expect(mocks.filterNodesByHealth).toHaveBeenCalledWith(
+      rawNodes,
+      expect.objectContaining({ sources: expect.any(Array) })
+    );
+    expect(mocks.generateClashYaml).toHaveBeenCalledWith(
+      expect.objectContaining({ nodes: [] })
+    );
   });
 
   it("hides generated preview when filtering removes every node", () => {

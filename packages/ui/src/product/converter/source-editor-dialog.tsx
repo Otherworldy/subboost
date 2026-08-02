@@ -1,7 +1,17 @@
 "use client";
 
+import * as React from "react";
 import { HelpCircle } from "lucide-react";
 import { DEFAULT_NODE_NAME_TEMPLATE } from "@subboost/core/node-name-template";
+import {
+  DEFAULT_HEALTH_CHECK,
+  HEALTH_CHECK_CONCURRENCY_MAX,
+  HEALTH_CHECK_CONCURRENCY_MIN,
+  HEALTH_CHECK_MAX_DELAY_MAX_MS,
+  HEALTH_CHECK_MAX_DELAY_MIN_MS,
+  normalizeHealthCheckUrl,
+  type SourceHealthCheckConfig,
+} from "@subboost/core/subscription/node-health";
 import { Button } from "@subboost/ui/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@subboost/ui/components/ui/dialog";
 import { FormField } from "@subboost/ui/components/ui/form-field";
@@ -19,6 +29,166 @@ export type SourceEditorDialogProps = {
   onUpdateContent: (id: string, content: string) => void;
   onUpdateMeta: (id: string, patch: Partial<SubscriptionSource>) => void;
 };
+
+function parseBoundedInt(raw: string, min: number, max: number): number | null {
+  const value = Number.parseInt(raw.trim(), 10);
+  if (!Number.isInteger(value) || value < min || value > max) return null;
+  return value;
+}
+
+/** 高级弹窗内的自动测活设置区（proxy-providers 模式不显示）。 */
+function HealthCheckSettings({
+  source,
+  onUpdateMeta,
+}: {
+  source: SubscriptionSource;
+  onUpdateMeta: (id: string, patch: Partial<SubscriptionSource>) => void;
+}) {
+  const isProviderMode = source.type === "url" && Boolean(source.useProxyProviders);
+  const config = source.healthCheck;
+  const [urlDraft, setUrlDraft] = React.useState<string | null>(null);
+  const [urlError, setUrlError] = React.useState<string | null>(null);
+  const [delayDraft, setDelayDraft] = React.useState<string | null>(null);
+  const [delayError, setDelayError] = React.useState<string | null>(null);
+  const [concurrencyDraft, setConcurrencyDraft] = React.useState<string | null>(null);
+  const [concurrencyError, setConcurrencyError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    setUrlDraft(null);
+    setUrlError(null);
+    setDelayDraft(null);
+    setDelayError(null);
+    setConcurrencyDraft(null);
+    setConcurrencyError(null);
+  }, [source.id]);
+
+  if (isProviderMode) {
+    return (
+      <p className="text-[11px] text-white/40">
+        proxy-providers 模式节点由客户端拉取，无法在 SubBoost 内测活，自动测活已禁用。
+      </p>
+    );
+  }
+
+  const updateConfig = (patch: Partial<SourceHealthCheckConfig>) => {
+    onUpdateMeta(source.id, { healthCheck: { ...(config ?? {}), ...patch } });
+  };
+
+  const commitUrl = (raw: string) => {
+    const normalized = normalizeHealthCheckUrl(raw);
+    if (!normalized) {
+      setUrlError("仅支持 HTTP/HTTPS 测活 URL");
+      setUrlDraft(null);
+      return;
+    }
+    setUrlError(null);
+    setUrlDraft(null);
+    if (normalized !== (config?.url ?? "")) updateConfig({ url: normalized });
+  };
+
+  const commitDelay = (raw: string) => {
+    const value = parseBoundedInt(raw, HEALTH_CHECK_MAX_DELAY_MIN_MS, HEALTH_CHECK_MAX_DELAY_MAX_MS);
+    if (value === null) {
+      setDelayError(`最高延迟需为 ${HEALTH_CHECK_MAX_DELAY_MIN_MS}-${HEALTH_CHECK_MAX_DELAY_MAX_MS}ms 的整数`);
+      setDelayDraft(null);
+      return;
+    }
+    setDelayError(null);
+    setDelayDraft(null);
+    if (value !== config?.maxDelayMs) updateConfig({ maxDelayMs: value });
+  };
+
+  const commitConcurrency = (raw: string) => {
+    const value = parseBoundedInt(raw, HEALTH_CHECK_CONCURRENCY_MIN, HEALTH_CHECK_CONCURRENCY_MAX);
+    if (value === null) {
+      setConcurrencyError(`并发需为 ${HEALTH_CHECK_CONCURRENCY_MIN}-${HEALTH_CHECK_CONCURRENCY_MAX} 的整数`);
+      setConcurrencyDraft(null);
+      return;
+    }
+    setConcurrencyError(null);
+    setConcurrencyDraft(null);
+    if (value !== config?.concurrency) updateConfig({ concurrency: value });
+  };
+
+  const enabled = Boolean(config?.enabled);
+
+  return (
+    <div className="space-y-2 border-t border-white/10 pt-3">
+      <div className="flex items-center gap-2">
+        <Switch
+          checked={enabled}
+          onCheckedChange={(next) => updateConfig({ enabled: next })}
+          aria-label="自动测活"
+        />
+        <span className="text-xs text-white/70">自动测活</span>
+        <HelpPopover
+          label="自动测活说明"
+          side="bottom"
+          align="end"
+          contentClassName="w-[320px] bg-black/90 p-3"
+        >
+          <div className="space-y-2 text-xs">
+            <p className="leading-relaxed text-white/60">
+              开启后，保存订阅以及每次手动/定时刷新时都会用 mihomo 内核测活：只保留延迟不超过上限的节点供下游订阅使用，
+              失败的节点仍会保留在“节点管理”中供查看。
+            </p>
+            <p className="leading-relaxed text-white/60">
+              也可以随时点击源行或节点上的测活按钮立即测活，不受此开关限制。
+            </p>
+          </div>
+        </HelpPopover>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <FormField label="测活 URL">
+          <Input
+            value={urlDraft ?? config?.url ?? ""}
+            onChange={(event) => {
+              setUrlDraft(event.target.value);
+              setUrlError(null);
+            }}
+            onBlur={(event) => commitUrl(event.currentTarget.value)}
+            placeholder={DEFAULT_HEALTH_CHECK.url}
+            className="text-xs font-mono"
+          />
+        </FormField>
+        <FormField label={`最高延迟 (ms)`}>
+          <Input
+            value={delayDraft ?? (config?.maxDelayMs !== undefined ? String(config.maxDelayMs) : "")}
+            onChange={(event) => {
+              setDelayDraft(event.target.value.replace(/\D/g, ""));
+              setDelayError(null);
+            }}
+            onBlur={(event) => commitDelay(event.currentTarget.value)}
+            placeholder={String(DEFAULT_HEALTH_CHECK.maxDelayMs)}
+            inputMode="numeric"
+            className="text-xs"
+          />
+        </FormField>
+        <FormField label="并发">
+          <Input
+            value={concurrencyDraft ?? (config?.concurrency !== undefined ? String(config.concurrency) : "")}
+            onChange={(event) => {
+              setConcurrencyDraft(event.target.value.replace(/\D/g, ""));
+              setConcurrencyError(null);
+            }}
+            onBlur={(event) => commitConcurrency(event.currentTarget.value)}
+            placeholder={String(DEFAULT_HEALTH_CHECK.concurrency)}
+            inputMode="numeric"
+            className="text-xs"
+          />
+        </FormField>
+      </div>
+      {(urlError || delayError || concurrencyError) && (
+        <p className="text-[11px] text-red-400">{urlError ?? delayError ?? concurrencyError}</p>
+      )}
+      <p className="text-[11px] text-white/40">
+        留空使用默认值：URL {DEFAULT_HEALTH_CHECK.url}、最高延迟 {DEFAULT_HEALTH_CHECK.maxDelayMs}ms、并发{" "}
+        {DEFAULT_HEALTH_CHECK.concurrency}。设置会随订阅保存。
+      </p>
+    </div>
+  );
+}
 
 export function SourceEditorDialog({
   source,
@@ -143,6 +313,8 @@ export function SourceEditorDialog({
                 />
               )}
             </div>
+
+            <HealthCheckSettings source={source} onUpdateMeta={onUpdateMeta} />
           </div>
         ) : null}
 
