@@ -3,22 +3,27 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getCurrentAdmin: vi.fn(),
   runNodeHealthChecks: vi.fn(),
+  persistNodeHealthResults: vi.fn(),
 }));
 
 vi.mock("@local/lib/api-auth", () => ({
-  withCurrentAdmin: async (handler: () => unknown) => {
+  withCurrentAdmin: async (handler: (admin: { id: string }) => unknown) => {
     const admin = await mocks.getCurrentAdmin();
     if (!admin) {
       return new Response(JSON.stringify({ error: "Authentication required.", code: "UNAUTHORIZED" }), {
         status: 401,
       });
     }
-    return handler();
+    return handler(admin);
   },
 }));
 
 vi.mock("@local/lib/node-health-service", () => ({
   runNodeHealthChecks: mocks.runNodeHealthChecks,
+}));
+
+vi.mock("@local/lib/subscription-service", () => ({
+  persistNodeHealthResults: mocks.persistNodeHealthResults,
 }));
 
 import { POST } from "./route";
@@ -55,6 +60,7 @@ describe("local node health route", () => {
         summary: { tested: 1, ok: 1, fail: 0, unsupported: 0 },
       };
     });
+    mocks.persistNodeHealthResults.mockResolvedValue(true);
   });
 
   it("requires the local administrator", async () => {
@@ -97,6 +103,34 @@ describe("local node health route", () => {
         result: { status: "ok", delayMs: 10, checkedAt: "t" },
       },
       { type: "done", summary: { tested: 1, ok: 1, fail: 0, unsupported: 0 } },
+    ]);
+  });
+
+  it("persists results to the edited subscription when subscriptionId is provided", async () => {
+    const response = await readNdjson(
+      await POST(request({ scope: { kind: "all" }, nodes: [], sources: [], subscriptionId: "sub-9" }))
+    );
+
+    expect(response.lines[response.lines.length - 1]).toMatchObject({ type: "done" });
+    expect(mocks.persistNodeHealthResults).toHaveBeenCalledWith("admin-1", "sub-9", [
+      { name: "A", health: { s1: { status: "ok", delayMs: 10, checkedAt: "t" } } },
+    ]);
+  });
+
+  it("reports when the edited subscription no longer exists", async () => {
+    mocks.persistNodeHealthResults.mockResolvedValueOnce(false);
+    const response = await readNdjson(
+      await POST(request({ scope: { kind: "all" }, nodes: [], sources: [], subscriptionId: "sub-gone" }))
+    );
+
+    expect(response.lines).toEqual([
+      {
+        type: "result",
+        name: "A",
+        sourceId: "s1",
+        result: { status: "ok", delayMs: 10, checkedAt: "t" },
+      },
+      { type: "error", message: "测活完成，但订阅不存在或已被删除，结果未持久化" },
     ]);
   });
 

@@ -14,6 +14,7 @@ import { getModuleRuleOrderKey } from "@subboost/core/generator/module-rules";
 import { resolveProxyGroupModuleName } from "@subboost/core/proxy-group-name";
 import { resolveProxyGroupTargetName } from "@subboost/core/proxy-group-targets";
 import { resolveNodeNameFilter } from "@subboost/core/subscription/node-name-filter";
+import { filterNodesByHealth } from "@subboost/core/subscription/node-health";
 import { collectCustomRoutingRuleSets } from "@subboost/core/rules/custom-routing-rule-sets";
 import { CustomRulesPreview } from "./visual-graph/custom-rules-preview";
 import { getDialerEmojiFromName } from "./visual-graph/emoji";
@@ -29,6 +30,7 @@ import {
 export function VisualGraph() {
   const {
     nodes,
+    sources,
     nodeNameFilter,
     enabledProxyGroups,
     dialerProxyGroups,
@@ -46,6 +48,7 @@ export function VisualGraph() {
   } = useConfigStore(
     useShallow((state) => ({
       nodes: state.nodes,
+      sources: state.sources,
       nodeNameFilter: state.nodeNameFilter,
       enabledProxyGroups: state.enabledProxyGroups,
       dialerProxyGroups: state.dialerProxyGroups ?? [],
@@ -62,9 +65,14 @@ export function VisualGraph() {
       setProxyGroupOrder: state.setProxyGroupOrder,
     })),
   );
+  // 与 YAML 预览一致：先按测活结果过滤（失败/不支持的来源节点不输出），再做名称过滤
+  const healthFilteredNodes = React.useMemo(
+    () => filterNodesByHealth(nodes, { sources }),
+    [nodes, sources],
+  );
   const effectiveNodes = React.useMemo(
-    () => resolveNodeNameFilter(nodes, nodeNameFilter).effectiveNodes,
-    [nodeNameFilter, nodes],
+    () => resolveNodeNameFilter(healthFilteredNodes, nodeNameFilter).effectiveNodes,
+    [healthFilteredNodes, nodeNameFilter],
   );
   const rawNodeNameSet = React.useMemo(
     () => new Set(nodes.map((node) => node.name)),

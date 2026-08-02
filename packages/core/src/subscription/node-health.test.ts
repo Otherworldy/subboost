@@ -174,12 +174,12 @@ describe("isNodeVisibleToDownstream", () => {
     expect(isNodeVisibleToDownstream(node(), sources)).toBe(true);
   });
 
-  it("keeps nodes from non-enabled or unknown sources visible", () => {
+  it("keeps nodes from unknown or untested sources visible", () => {
     expect(isNodeVisibleToDownstream(node({ [SOURCE_IDS_KEY]: ["plain"] }), sources)).toBe(true);
     expect(isNodeVisibleToDownstream(node({ [SOURCE_IDS_KEY]: ["ghost"] }), sources)).toBe(true);
   });
 
-  it("hides nodes only when every enabled source failed or is unsupported", () => {
+  it("hides nodes only when every known source failed or is unsupported", () => {
     const allFailed = withNodeHealthResult(
       withNodeHealthResult(node({ [SOURCE_IDS_KEY]: ["auto", "auto2"] }), "auto", {
         status: "fail",
@@ -201,7 +201,7 @@ describe("isNodeVisibleToDownstream", () => {
     expect(isNodeVisibleToDownstream(oneUnsupported, sources)).toBe(false);
   });
 
-  it("keeps nodes with any ok result, untested enabled source, or a non-enabled source", () => {
+  it("keeps nodes with any ok result or an untested source", () => {
     const anyOk = withNodeHealthResult(
       withNodeHealthResult(node({ [SOURCE_IDS_KEY]: ["auto", "auto2"] }), "auto", {
         status: "fail",
@@ -220,6 +220,15 @@ describe("isNodeVisibleToDownstream", () => {
       checkedAt: "t1",
     });
     expect(isNodeVisibleToDownstream(mixed, sources)).toBe(true);
+  });
+
+  it("hides failed nodes even when the source has automatic health checks disabled", () => {
+    // 手动测活结果同样参与过滤：只要来源有结果，失败即隐藏
+    const manualFail = withNodeHealthResult(node({ [SOURCE_IDS_KEY]: ["plain"] }), "plain", {
+      status: "fail",
+      checkedAt: "t1",
+    });
+    expect(isNodeVisibleToDownstream(manualFail, sources)).toBe(false);
   });
 });
 

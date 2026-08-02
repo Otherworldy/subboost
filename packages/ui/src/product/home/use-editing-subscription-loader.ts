@@ -606,6 +606,7 @@ export function useEditingSubscriptionLoader({
             autoUpdateInterval,
             smartNodeMatchingEnabled: (cfg as any).smartNodeMatchingEnabled !== false,
           });
+          useConfigStore.setState({ editingSubscriptionId: sub.id });
           setSubscriptionName(sub.name || "");
           setSubscriptionUrl("");
           setCopied(false);
@@ -622,6 +623,7 @@ export function useEditingSubscriptionLoader({
           title: e instanceof Error ? e.message : "加载订阅失败",
           variant: "destructive",
         });
+        useConfigStore.setState({ editingSubscriptionId: null });
         setEditingSubscription(null);
       }
     });

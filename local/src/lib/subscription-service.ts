@@ -5,7 +5,9 @@ import { buildProxyProvidersFromConfig } from "@subboost/core/subscription/proxy
 import {
   applyNodeHealthResults,
   filterNodesByHealth,
+  HEALTH_RESULTS_KEY,
   resolveSourceHealthCheck,
+  type NodeHealthResult,
 } from "@subboost/core/subscription/node-health";
 import { getNodeSourceIds } from "@subboost/core/subscription/node-source-state";
 import type { SubscriptionResponseInfo } from "@subboost/core/subscription/subscription-response-info";
@@ -483,6 +485,37 @@ export async function refreshSubscription(ownerId: string, id: string) {
       cachedAt,
     }),
   };
+}
+
+/**
+ * 手动测活结果落库：把测活返回的 (节点, 来源) 结果合并进该订阅已持久化节点的 _health，
+ * 仅按节点名匹配、只覆盖本次测活涉及的来源条目，其余内容不动。
+ * 订阅不存在或不属于该管理员时返回 false。
+ */
+export async function persistNodeHealthResults(
+  ownerId: string,
+  id: string,
+  results: Array<{ name: string; health: Record<string, NodeHealthResult> }>
+): Promise<boolean> {
+  const row = await prisma.subscription.findFirst({ where: { id, ownerId } });
+  if (!row) return false;
+  const secrets = readSubscriptionSecrets(row);
+  const byName = new Map(results.map((item) => [item.name, item.health]));
+  const nextNodes = secrets.nodes.map((node) => {
+    const health = byName.get(node.name);
+    if (!health || Object.keys(health).length === 0) return node;
+    const record = node as unknown as Record<string, unknown>;
+    const existing = (record[HEALTH_RESULTS_KEY] ?? {}) as Record<string, NodeHealthResult>;
+    return { ...record, [HEALTH_RESULTS_KEY]: { ...existing, ...health } } as unknown as ParsedNode;
+  });
+  const changed = nextNodes.some((node, index) => node !== secrets.nodes[index]);
+  if (changed) {
+    await prisma.subscription.update({
+      where: { id: row.id },
+      data: { encryptedNodes: encryptJson(nextNodes) },
+    });
+  }
+  return true;
 }
 
 export async function generateSubscriptionYaml(token: string): Promise<GeneratedSubscriptionYaml | null> {

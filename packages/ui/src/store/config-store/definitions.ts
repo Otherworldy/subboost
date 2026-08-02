@@ -192,6 +192,9 @@ export interface ConfigState {
   isLoading: boolean;
   nodeNameFilter: NodeNameFilterConfig;
 
+  // 正在编辑的已保存订阅 id（仅用于测活结果持久化，不写入本地草稿）
+  editingSubscriptionId: string | null;
+
   // 订阅源
   sources: SubscriptionSource[];
 
@@ -369,6 +372,7 @@ export const initialState: ConfigState = {
   deletedNodes: [],
   parseErrors: [],
   isLoading: false,
+  editingSubscriptionId: null,
   nodeNameFilter: {
     enabled: DEFAULT_NODE_NAME_FILTER_CONFIG.enabled,
     excludeRegexes: [...DEFAULT_NODE_NAME_FILTER_CONFIG.excludeRegexes],

@@ -208,6 +208,25 @@ describe("VisualGraph", () => {
     });
   });
 
+  it("hides health-check-failed nodes from the visual preview", () => {
+    mocks.store.nodes = [
+      { name: "Dead", type: "ss", _sourceIds: ["s1"], _health: { s1: { status: "fail", checkedAt: "t1" } } },
+      { name: "Live", type: "ss", _sourceIds: ["s1"], _health: { s1: { status: "ok", delayMs: 10, checkedAt: "t1" } } },
+      { name: "Untested", type: "ss", _sourceIds: ["s2"] },
+    ];
+    mocks.store.sources = [
+      { id: "s1", type: "url", content: "https://a.example/sub" },
+      { id: "s2", type: "url", content: "https://b.example/sub" },
+    ];
+    mocks.store.nodeNameFilter = { enabled: false, excludeRegexes: [] };
+
+    const { html } = renderGraph();
+
+    expect(html).toContain("Live");
+    expect(html).toContain("Untested");
+    expect(html).not.toContain("Dead");
+  });
+
   it("builds display groups, node previews, custom rules, and drag callbacks", () => {
     const { html, setters } = renderGraph({ 0: new Set(["module:auto"]), 1: null, 2: null, 3: 360 });
 

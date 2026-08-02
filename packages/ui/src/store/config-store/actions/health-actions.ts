@@ -83,6 +83,7 @@ export function createHealthActions(
             scope,
             nodes: state.nodes,
             sources: state.sources,
+            ...(state.editingSubscriptionId ? { subscriptionId: state.editingSubscriptionId } : {}),
           },
           (name, sourceId, result) => {
             if (runId !== latestRunId) return; // 已被更新的测活请求取代，丢弃过期回显

@@ -215,8 +215,9 @@ export function summarizeNodeHealth(node: ParsedNode): NodeHealthSummary {
 }
 
 /**
- * 下游可见性：节点任一来源未启用自动测活、任一来源测活成功、或来源未产生结果（未测）即可见；
- * 仅当全部已启用测活的来源都显式失败/不支持时才隐藏。
+ * 下游可见性：节点任一来源未知、任一来源未测（无结果）、或任一来源测活成功即可见；
+ * 仅当全部已知来源都有测活结果且都显式失败/不支持时才隐藏。
+ * 不区分手动/自动测活：只要来源有结果，失败即过滤。
  */
 export function isNodeVisibleToDownstream(
   node: ParsedNode,
@@ -225,27 +226,20 @@ export function isNodeVisibleToDownstream(
   const sourceIds = getNodeSourceIds(node);
   if (sourceIds.length === 0) return true;
 
-  const enabledById = new Map<string, ResolvedSourceHealthCheck>();
   const knownIds = new Set<string>();
   for (const source of sources) {
     const id = (source.id || "").trim();
-    if (!id) continue;
-    knownIds.add(id);
-    const resolved = resolveSourceHealthCheck(source);
-    if (resolved.enabled) enabledById.set(id, resolved);
+    if (id) knownIds.add(id);
   }
 
   const results = getNodeHealthResults(node);
-  let hasEnabledSource = false;
   for (const sourceId of sourceIds) {
     if (!knownIds.has(sourceId)) return true;
-    if (!enabledById.has(sourceId)) return true;
-    hasEnabledSource = true;
     const result = results[sourceId];
     if (!result || result.status === "ok") return true;
   }
 
-  return !hasEnabledSource;
+  return false;
 }
 
 /** 从持久化 config.sources 提取参与测活过滤的来源描述。 */

@@ -1,6 +1,7 @@
 import { withCurrentAdmin } from "@local/lib/api-auth";
 import { apiError, jsonBodyError, LOCAL_JSON_BODY_LIMITS, readJsonBody } from "@local/lib/http";
 import { runNodeHealthChecks, type NodeHealthCheckScope } from "@local/lib/node-health-service";
+import { persistNodeHealthResults } from "@local/lib/subscription-service";
 
 type HealthStreamMessage =
   | { type: "result"; name: string; sourceId: string; result: unknown }
@@ -30,7 +31,7 @@ function parseScope(body: Record<string, unknown>): NodeHealthCheckScope | null 
 }
 
 export async function POST(request: Request) {
-  return withCurrentAdmin(async () => {
+  return withCurrentAdmin(async (admin) => {
     const parsedBody = await readJsonBody(request, LOCAL_JSON_BODY_LIMITS.subscription);
     if (!parsedBody.ok) return jsonBodyError(parsedBody);
     const body = parsedBody.value;
@@ -42,6 +43,10 @@ export async function POST(request: Request) {
     if (!scope) {
       return apiError("Invalid health check scope.", "BAD_REQUEST", 400);
     }
+    const subscriptionId =
+      typeof (body as Record<string, unknown>).subscriptionId === "string"
+        ? ((body as Record<string, unknown>).subscriptionId as string).trim()
+        : "";
 
     try {
       const encoder = new TextEncoder();
@@ -58,6 +63,13 @@ export async function POST(request: Request) {
                 );
               },
             });
+            // 正在编辑已保存订阅时，把手动测活结果落库，下游订阅链接立即过滤不通节点
+            if (subscriptionId) {
+              const persisted = await persistNodeHealthResults(admin.id, subscriptionId, result.nodes);
+              if (!persisted) {
+                throw new Error("测活完成，但订阅不存在或已被删除，结果未持久化");
+              }
+            }
             controller.enqueue(encoder.encode(streamMessage({ type: "done", summary: result.summary })));
           } catch (error) {
             controller.enqueue(

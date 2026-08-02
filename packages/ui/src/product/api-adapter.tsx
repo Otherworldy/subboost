@@ -98,6 +98,8 @@ export type NodeHealthCheckRequest = {
     useProxyProviders?: boolean;
     healthCheck?: SourceHealthCheckConfig;
   }>;
+  // 正在编辑的订阅：测活结果同时持久化到该订阅，下游生成立即生效
+  subscriptionId?: string;
 };
 
 export type NodeHealthCheckSummary = {
