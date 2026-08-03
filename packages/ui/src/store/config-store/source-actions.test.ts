@@ -674,3 +674,69 @@ describe("createSourceActions", () => {
   });
 
 });
+
+describe("createSourceActions – reorderNodesBySources", () => {
+  beforeEach(resetSourceActionMocks);
+
+  it("reorders nodes to follow the source order", () => {
+    const { actions, getState } = createHarness({
+      sources: [
+        source({ id: "s1", type: "url", content: "https://one.example/sub" }),
+        source({ id: "s2", type: "yaml", content: "proxies: []" }),
+        source({ id: "s3", type: "nodes", content: "" }),
+      ],
+      nodes: [
+        node("S2-A", { _sourceIds: ["s2"] }),
+        node("S1-A", { _sourceIds: ["s1"] }),
+        node("S3-A", { _sourceIds: ["s3"] }),
+        node("S1-B", { _sourceIds: ["s1"] }),
+        node("S2-B", { _sourceIds: ["s2"] }),
+      ],
+    });
+
+    actions.reorderNodesBySources();
+
+    expect(getState().nodes.map((n: ParsedNode) => n.name)).toEqual([
+      "S1-A", "S1-B", "S2-A", "S2-B", "S3-A",
+    ]);
+  });
+
+  it("keeps multi-source nodes at their earliest owning source and manual nodes last", () => {
+    const { actions, getState } = createHarness({
+      sources: [
+        source({ id: "s1", type: "url", content: "https://one.example/sub" }),
+        source({ id: "s2", type: "yaml", content: "proxies: []" }),
+      ],
+      nodes: [
+        node("Shared", { _sourceIds: ["s2", "s1"] }),
+        node("Manual"),
+        node("S1-A", { _sourceIds: ["s1"] }),
+      ],
+    });
+
+    actions.reorderNodesBySources();
+
+    // Shared 最早所属源是 s1（index 最小），与 S1-A 同组且稳定排序保持原相对顺序；Manual 无源排最后
+    expect(getState().nodes.map((n: ParsedNode) => n.name)).toEqual([
+      "Shared", "S1-A", "Manual",
+    ]);
+  });
+
+  it("is a no-op when nodes are already in source order", () => {
+    const { actions, getState } = createHarness({
+      sources: [
+        source({ id: "s1", type: "url", content: "https://one.example/sub" }),
+        source({ id: "s2", type: "yaml", content: "proxies: []" }),
+      ],
+      nodes: [
+        node("S1-A", { _sourceIds: ["s1"] }),
+        node("S2-A", { _sourceIds: ["s2"] }),
+      ],
+    });
+    const before = getState().nodes;
+
+    actions.reorderNodesBySources();
+
+    expect(getState().nodes).toBe(before);
+  });
+});

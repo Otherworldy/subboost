@@ -93,6 +93,7 @@ vi.mock("lucide-react", () => ({
   ChevronUp: () => null,
   CircleHelp: () => null,
   FileCode: () => null,
+  GripVertical: () => null,
   HelpCircle: () => null,
   Loader2: () => null,
   Link2: () => null,
@@ -264,6 +265,7 @@ describe("advanced mode InputSection", () => {
       parseErrors: [{ message: "bad subscription" }],
       sources: [urlSource, nodesSource],
       setSources: vi.fn(),
+      reorderNodesBySources: vi.fn(),
       parseSingleSource: vi.fn(),
     };
     mocks.userStore = { user: { isAdmin: false, quota: { maxImportSourcesPerType: 2 } } };

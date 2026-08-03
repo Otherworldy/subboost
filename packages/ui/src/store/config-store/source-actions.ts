@@ -27,6 +27,7 @@ import {
   withoutNodeHealthResultsForSources,
 } from "@subboost/core/subscription/node-health";
 import type { ConfigActions, SubscriptionSource } from "./definitions";
+import { sortNodesBySourceOrder } from "@subboost/ui/product/subscription/source-order";
 import {
   fetchUrlContentInBrowser,
   getNodeSourceIds,
@@ -41,7 +42,7 @@ import { SourceImportOperationGuard, type SingleSourceImportOperation } from "./
 
 type SourceActions = Pick<
   ConfigActions,
-  "setSources" | "parseContent" | "parseSingleSource" | "parseMultipleSources"
+  "setSources" | "reorderNodesBySources" | "parseContent" | "parseSingleSource" | "parseMultipleSources"
 >;
 
 function pickUrlFetchParseResult(fetched: Awaited<ReturnType<typeof fetchUrlContentInBrowser>>): ParseResult | null {
@@ -143,6 +144,18 @@ export function createSourceActions(set: SetState, get: GetState, setAndGenerate
           dialerProxyGroups: nextDialerProxyGroups,
         };
       });
+    },
+
+    // 源顺序变化后重排节点：节点按所属源（最早 index）排列
+    reorderNodesBySources: () => {
+      const { nodes, sources: currentSources } = get();
+      const reordered = sortNodesBySourceOrder(
+        nodes,
+        currentSources,
+        (node) => getNodeSourceIds(node)
+      );
+      if (reordered.length === nodes.length && reordered.every((node, index) => node === nodes[index])) return;
+      set({ nodes: reordered });
     },
 
     // 解析订阅内容

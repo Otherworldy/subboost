@@ -260,6 +260,8 @@ export interface ConfigState {
 export interface ConfigActions {
   // 订阅源操作
   setSources: (sources: SubscriptionSource[]) => void;
+  // 按当前源顺序重排节点（源顺序变化后调用，节点跟随源排列）
+  reorderNodesBySources: () => void;
 
   // 节点操作
   parseContent: (content: string) => void;

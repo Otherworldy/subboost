@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertCircle, Check, Loader2, Maximize2, Server, X, ChevronUp, ChevronDown } from "lucide-react";
+import { AlertCircle, Check, GripVertical, Loader2, Maximize2, Server, X, ChevronUp, ChevronDown } from "lucide-react";
 import { Badge } from "@subboost/ui/components/ui/badge";
 import { IconButton } from "@subboost/ui/components/ui/icon-button";
 import { Input } from "@subboost/ui/components/ui/input";
@@ -32,6 +32,12 @@ export function InputSection({
     handleHealthCheckSource,
     healthCheckingSourceId,
     moveSource,
+    dragSourceId,
+    dragOverSourceId,
+    handleSourceDragStart,
+    handleSourceDragOver,
+    handleSourceDrop,
+    handleSourceDragEnd,
     nodesBySourceId,
     removeSource,
     setExpandedSourceId,
@@ -72,9 +78,41 @@ export function InputSection({
             });
             const sourceNodes = nodesBySourceId.get(source.id) ?? [];
             return (
-              <div key={source.id} className="space-y-1">
+              <div
+                key={source.id}
+                role="group"
+                aria-label={`导入源 ${index + 1}`}
+                className={cn(
+                  "space-y-1",
+                  dragSourceId === source.id && "opacity-40",
+                  dragOverSourceId === source.id && dragSourceId && dragSourceId !== source.id &&
+                    "rounded-lg ring-1 ring-indigo-400/60 bg-indigo-500/10"
+                )}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  handleSourceDragOver(source.id);
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  handleSourceDrop(source.id);
+                }}
+              >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      draggable
+                      title="拖拽排序"
+                      className="flex h-5 w-4 cursor-grab items-center justify-center text-white/20 transition-colors hover:text-white/60 active:cursor-grabbing"
+                      onDragStart={(event) => {
+                        event.dataTransfer.setData("text/plain", source.id);
+                        event.dataTransfer.effectAllowed = "move";
+                        handleSourceDragStart(source.id);
+                      }}
+                      onDragEnd={handleSourceDragEnd}
+                    >
+                      <GripVertical className="h-4 w-4" aria-hidden="true" />
+                    </button>
                     <SourceTypeChoices
                       value={source.type}
                       onChange={(type) => updateSourceType(source.id, type)}

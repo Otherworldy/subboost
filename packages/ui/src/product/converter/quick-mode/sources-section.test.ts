@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   getSubscriptionUserInfoDisplay: vi.fn(),
   markSourceAsPendingImport: vi.fn(),
   moveSubscriptionSource: vi.fn(),
+  moveSubscriptionSourceTo: vi.fn(),
   toast: vi.fn(),
 }));
 
@@ -20,6 +21,7 @@ const stateMock = vi.hoisted(() => ({
   enabled: false,
   callIndex: 0,
   overrides: {} as Record<number, unknown>,
+  dragRows: [] as any[],
   setters: [] as Array<ReturnType<typeof vi.fn>>,
 }));
 
@@ -56,6 +58,10 @@ vi.mock("react/jsx-runtime", async (importOriginal) => {
       mocks.captures.rawButtons ||= [];
       mocks.captures.rawButtons.push(props || {});
     }
+    if (type === "div" && props?.onDrop) {
+      mocks.captures.dragRows ||= [];
+      mocks.captures.dragRows.push(props);
+    }
   };
   return {
     ...actual,
@@ -87,6 +93,7 @@ vi.mock("lucide-react", () => ({
   ChevronUp: () => null,
   CircleHelp: () => null,
   FileCode: () => null,
+  GripVertical: () => null,
   HelpCircle: () => null,
   Loader2: () => null,
   Link2: () => null,
@@ -166,7 +173,7 @@ vi.mock("@subboost/ui/product/subscription/subscription-userinfo-display", () =>
 vi.mock("@subboost/ui/product/subscription/source-import-state", () => ({
   markSourceAsPendingImport: mocks.markSourceAsPendingImport,
 }));
-vi.mock("@subboost/ui/product/subscription/source-order", () => ({ moveSubscriptionSource: mocks.moveSubscriptionSource }));
+vi.mock("@subboost/ui/product/subscription/source-order", () => ({ moveSubscriptionSource: mocks.moveSubscriptionSource, moveSubscriptionSourceTo: mocks.moveSubscriptionSourceTo }));
 vi.mock("@subboost/ui/product/converter/source-display-label", () => ({
   buildSourceDisplayLabel: ({ typeLabel, order, total, tag }: any) => `${typeLabel} ${order}/${total}${tag ? ` ${tag}` : ""}`,
 }));
@@ -278,6 +285,7 @@ describe("quick mode SourcesSection", () => {
       parseErrors: [{ message: "bad subscription" }],
       sources: [urlSource, textSource],
       setSources: vi.fn(),
+      reorderNodesBySources: vi.fn(),
       parseSingleSource: vi.fn(),
     };
     mocks.userStore = { user: { isAdmin: false, quota: { maxImportSourcesPerType: 2 } } };
@@ -473,6 +481,7 @@ describe("quick mode SourcesSection", () => {
     mocks.captures.iconButtons.find((props: any) => props.label === "下移" && !props.disabled).onClick();
     expect(mocks.moveSubscriptionSource).toHaveBeenCalledWith(mocks.store.sources, "s1", "down");
     expect(mocks.store.setSources).toHaveBeenCalledWith([...mocks.store.sources].reverse());
+    expect(mocks.store.reorderNodesBySources).toHaveBeenCalled();
 
     renderSection();
     mocks.captures.iconButtons.find((props: any) => props.label === "删除导入源").onClick();
@@ -628,5 +637,62 @@ describe("quick mode SourcesSection", () => {
     mocks.captures.editor.onClose();
     expect(mocks.store.parseSingleSource).not.toHaveBeenCalled();
     expect(stateMock.setters[1]).toHaveBeenCalledWith(null);
+  });
+});
+
+describe("quick mode SourcesSection – drag reorder", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.captures.dragRows = [];
+    mocks.moveSubscriptionSourceTo.mockImplementation((sources, sourceId, targetSourceId) => {
+      const fromIndex = sources.findIndex((s: any) => s.id === sourceId);
+      const toIndex = sources.findIndex((s: any) => s.id === targetSourceId);
+      const next = [...sources];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      return next;
+    });
+    mocks.store = {
+      nodes: [
+        { name: "Alpha", type: "ss", _sourceIds: ["s1"] },
+        { name: "Beta", type: "vless", _sourceIds: ["s1"] },
+      ],
+      parseErrors: [],
+      sources: [urlSource, textSource],
+      setSources: vi.fn(),
+      reorderNodesBySources: vi.fn(),
+      parseSingleSource: vi.fn(),
+    };
+    mocks.userStore = { user: { isAdmin: false, quota: { maxImportSourcesPerType: 2 } } };
+  });
+
+  it("renders a drag handle per source row", () => {
+    renderSection();
+    const handles = mocks.captures.rawButtons.filter((props: any) => props.title === "拖拽排序");
+    expect(handles).toHaveLength(2);
+    expect(handles[0].draggable).toBe(true);
+    expect(typeof handles[0].onDragStart).toBe("function");
+    expect(typeof handles[0].onDragEnd).toBe("function");
+  });
+
+  it("drops a dragged source onto another row and reorders nodes", () => {
+    // 模拟已拖起第一个源（dragSourceId 是 controller 的第 5 个 useState）
+    renderSection({ 4: "s1" });
+    const rows = mocks.captures.dragRows;
+    expect(rows).toHaveLength(2);
+    rows[1].onDragOver({ preventDefault: vi.fn() });
+    rows[1].onDrop({ preventDefault: vi.fn() });
+
+    expect(mocks.moveSubscriptionSourceTo).toHaveBeenCalledWith(mocks.store.sources, "s1", "s2");
+    expect(mocks.store.setSources).toHaveBeenCalledWith(expect.any(Array));
+    expect(mocks.store.reorderNodesBySources).toHaveBeenCalled();
+  });
+
+  it("ignores drops on the same row", () => {
+    renderSection({ 4: "s1" });
+    mocks.captures.dragRows[0].onDrop({ preventDefault: vi.fn() });
+
+    expect(mocks.moveSubscriptionSourceTo).not.toHaveBeenCalled();
+    expect(mocks.store.setSources).not.toHaveBeenCalled();
   });
 });

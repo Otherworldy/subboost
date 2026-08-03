@@ -9,7 +9,7 @@ import { useUserStore } from "@subboost/ui/store/user-store";
 import { toast } from "@subboost/ui/components/ui/toaster";
 import { useProductInteractionAdapter, type ProductInteractionResult } from "@subboost/ui/product/interactions";
 import { markSourceAsPendingImport } from "@subboost/ui/product/subscription/source-import-state";
-import { moveSubscriptionSource } from "@subboost/ui/product/subscription/source-order";
+import { moveSubscriptionSource, moveSubscriptionSourceTo } from "@subboost/ui/product/subscription/source-order";
 import { showHealthRunOutcomeToast } from "@subboost/ui/product/converter/health-outcome";
 
 export type SubscriptionSourcesMode = "quick" | "advanced";
@@ -211,9 +211,40 @@ export function useSubscriptionSourcesController({ mode }: Options) {
       const nextSources = moveSubscriptionSource(sources, sourceId, direction);
       if (nextSources === sources) return;
       setSources(nextSources);
+      // 节点跟随源顺序重排
+      useConfigStore.getState().reorderNodesBySources();
     },
     [setSources, sources]
   );
+
+  // 拖拽排序：把 sourceId 移到 targetSourceId 所在位置，节点同步重排
+  const moveSourceTo = React.useCallback(
+    (sourceId: string, targetSourceId: string) => {
+      const nextSources = moveSubscriptionSourceTo(sources, sourceId, targetSourceId);
+      if (nextSources === sources) return;
+      setSources(nextSources);
+      useConfigStore.getState().reorderNodesBySources();
+    },
+    [setSources, sources]
+  );
+
+  // 拖拽过程状态：正在拖的源 + 当前悬停目标（用于高亮）
+  const [dragSourceId, setDragSourceId] = React.useState<string | null>(null);
+  const [dragOverSourceId, setDragOverSourceId] = React.useState<string | null>(null);
+  const handleSourceDragStart = React.useCallback((sourceId: string) => setDragSourceId(sourceId), []);
+  const handleSourceDragOver = React.useCallback((sourceId: string) => setDragOverSourceId(sourceId), []);
+  const handleSourceDrop = React.useCallback(
+    (targetSourceId: string) => {
+      if (dragSourceId && dragSourceId !== targetSourceId) moveSourceTo(dragSourceId, targetSourceId);
+      setDragSourceId(null);
+      setDragOverSourceId(null);
+    },
+    [dragSourceId, moveSourceTo]
+  );
+  const handleSourceDragEnd = React.useCallback(() => {
+    setDragSourceId(null);
+    setDragOverSourceId(null);
+  }, []);
 
   const updateSourceType = React.useCallback(
     (id: string, type: SourceType) => {
@@ -306,6 +337,13 @@ export function useSubscriptionSourcesController({ mode }: Options) {
     healthCheckingSourceId,
     maxSourcesPerType,
     moveSource,
+    moveSourceTo,
+    dragSourceId,
+    dragOverSourceId,
+    handleSourceDragStart,
+    handleSourceDragOver,
+    handleSourceDrop,
+    handleSourceDragEnd,
     nodeCount,
     nodesBySourceId,
     removeSource,
