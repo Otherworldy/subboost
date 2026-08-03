@@ -95,7 +95,7 @@ describe("refreshNodeSnapshot", () => {
     });
   });
 
-  it("reuses fresh health results during subscription refresh", async () => {
+  it("probes every node again on refresh even when fresh results exist", async () => {
     const checkedAt = new Date().toISOString();
     const runHealthCheck = vi.fn(async () => new Map());
     const result = await refreshNodeSnapshot({
@@ -122,7 +122,13 @@ describe("refreshNodeSnapshot", () => {
       runHealthCheck,
     });
 
-    expect(runHealthCheck).not.toHaveBeenCalled();
+    expect(runHealthCheck).toHaveBeenCalledTimes(1);
+    expect(runHealthCheck).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: expect.objectContaining({ id: "url-src" }),
+        nodes: [expect.objectContaining({ name: "node-a" })],
+      })
+    );
     expect(result.nodes[0]).toHaveProperty("_health.url-src.delayMs", 30);
   });
 

@@ -29,6 +29,8 @@ type Props = {
   subscriptionUrl: string;
   subscriptionName: string;
   setSubscriptionName: (value: string) => void;
+  subscriptionToken: string;
+  setSubscriptionToken: (value: string) => void;
   autoUpdateEnabled: boolean;
   setAutoUpdateEnabled: (value: boolean) => void;
   autoUpdateHours: number;
@@ -50,6 +52,8 @@ export function SubscriptionLinkDialog({
   subscriptionUrl,
   subscriptionName,
   setSubscriptionName,
+  subscriptionToken,
+  setSubscriptionToken,
   autoUpdateEnabled,
   setAutoUpdateEnabled,
   autoUpdateHours,
@@ -105,6 +109,21 @@ export function SubscriptionLinkDialog({
                 maxLength={100}
               />
             </FormField>
+
+            {!isEditingExistingSubscription && (
+              <FormField
+                label="自定义链接标识（可选）"
+                description="订阅链接中间一段，仅支持 4-64 位字母、数字、下划线或短横线；留空自动生成"
+              >
+                <Input
+                  placeholder="例如：my-sub-001"
+                  value={subscriptionToken}
+                  onChange={(e) => setSubscriptionToken(e.target.value)}
+                  maxLength={64}
+                  className="font-mono text-xs"
+                />
+              </FormField>
+            )}
 
             <div className="rounded-lg border border-white/10 bg-white/5 p-3">
               <div className="flex items-center justify-between gap-4">

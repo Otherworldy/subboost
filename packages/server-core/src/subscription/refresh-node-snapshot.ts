@@ -12,7 +12,6 @@ import {
 } from "@subboost/core/subscription/source-node-refresh";
 import {
   applyNodeHealthResults,
-  getFreshNodeHealthResults,
   getNodeHealthResults,
   resolveSourceHealthCheck,
   stripNodeHealthResultsForSource,
@@ -193,14 +192,12 @@ export async function refreshNodeSnapshot(
     if (!resolveSourceHealthCheck(source).enabled) return;
     if (typeof options.runHealthCheck !== "function") return;
     const sourceNodes = currentNodes.filter((node) => getNodeSourceIds(node).includes(source.id));
-    const cached = getFreshNodeHealthResults(sourceNodes, source.id);
-    const pendingNodes = sourceNodes.filter((node) => !cached.has(node.name));
-    if (pendingNodes.length === 0) return;
-    healthTotal += pendingNodes.length;
+    if (sourceNodes.length === 0) return;
+    healthTotal += sourceNodes.length;
     options.onHealthProgress?.(healthTested, healthTotal);
     const results = await options.runHealthCheck({
       source,
-      nodes: pendingNodes,
+      nodes: sourceNodes,
       onResult: () => {
         healthTested += 1;
         options.onHealthProgress?.(healthTested, healthTotal);

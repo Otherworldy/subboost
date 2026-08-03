@@ -96,6 +96,8 @@ const baseProps = {
   subscriptionUrl: "",
   subscriptionName: "我的配置",
   setSubscriptionName: vi.fn(),
+  subscriptionToken: "",
+  setSubscriptionToken: vi.fn(),
   autoUpdateEnabled: false,
   setAutoUpdateEnabled: vi.fn(),
   autoUpdateHours: 24,
@@ -136,6 +138,7 @@ describe("SubscriptionLinkDialog", () => {
 
     expect(captures.dialogs[0]).toMatchObject({ open: true });
     expect(html).toContain("生成订阅链接");
+    expect(html).toContain("自定义链接标识");
     expect(html).toContain("更新时智能匹配节点");
     expect(html).toContain("启用自动更新");
     expect(html).toContain("自动更新间隔");
@@ -143,16 +146,19 @@ describe("SubscriptionLinkDialog", () => {
     expect(html).toContain("订阅链接相当于访问凭证，请勿公开分享");
     expect(html).toContain("客户端高频拉取订阅会被封禁，请合理配置");
     expect(captures.inputs[0]).toMatchObject({ value: "我的配置", maxLength: 100 });
-    expect(captures.inputs[1]).toMatchObject({ type: "number", min: 12, step: 1, value: 8 });
+    expect(captures.inputs[1]).toMatchObject({ placeholder: "例如：my-sub-001", maxLength: 64 });
+    expect(captures.inputs[2]).toMatchObject({ type: "number", min: 12, step: 1, value: 8 });
     expect(captures.switches).toHaveLength(2);
 
     captures.inputs[0].onChange({ target: { value: "新配置" } });
-    captures.inputs[1].onChange({ target: { value: "12" } });
+    captures.inputs[1].onChange({ target: { value: "my-sub-001" } });
+    captures.inputs[2].onChange({ target: { value: "12" } });
     captures.switches[0].onCheckedChange(false);
     captures.switches[1].onCheckedChange(false);
     captures.buttons.at(-1).onClick();
 
     expect(baseProps.setSubscriptionName).toHaveBeenCalledWith("新配置");
+    expect(baseProps.setSubscriptionToken).toHaveBeenCalledWith("my-sub-001");
     expect(baseProps.setAutoUpdateHours).toHaveBeenCalledWith(12);
     expect(baseProps.setSmartNodeMatchingEnabled).toHaveBeenCalledWith(false);
     expect(baseProps.setAutoUpdateEnabled).toHaveBeenCalledWith(false);
@@ -168,7 +174,6 @@ describe("SubscriptionLinkDialog", () => {
         isEditingExistingSubscription: true,
       })
     );
-
     expect(html).toContain("订阅链接已更新");
     expect(html).toContain("复制下方链接到 Clash 客户端导入使用");
     expect(html).toContain("更新成功");
@@ -183,6 +188,20 @@ describe("SubscriptionLinkDialog", () => {
 
     expect(baseProps.handleCopyUrl).toHaveBeenCalled();
     expect(baseProps.onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("hides the custom token input when editing an existing subscription", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(SubscriptionLinkDialog, {
+        ...baseProps,
+        isEditingExistingSubscription: true,
+      })
+    );
+
+    expect(html).toContain("更新订阅链接");
+    expect(html).toContain("链接保持不变");
+    expect(html).not.toContain("自定义链接标识");
+    expect(captures.inputs).toHaveLength(1); // 仅订阅名称
   });
 
   it("disables link creation while name is empty or a request is running", () => {

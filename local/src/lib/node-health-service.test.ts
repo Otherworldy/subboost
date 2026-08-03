@@ -46,7 +46,7 @@ describe("runNodeHealthChecks", () => {
     );
     expect(mocks.runMihomoHealthCheck).toHaveBeenCalledWith(
       expect.objectContaining({
-        config: expect.objectContaining({ url: "https://www.google.com/", maxDelayMs: 5000, concurrency: 20 }),
+        config: expect.objectContaining({ url: "http://cp.cloudflare.com/generate_204", maxDelayMs: 5000, concurrency: 20 }),
       })
     );
     expect(result.summary).toEqual({ tested: 3, ok: 3, fail: 0, unsupported: 0 });
@@ -65,7 +65,7 @@ describe("runNodeHealthChecks", () => {
     expect(result.nodes.map((item) => item.name).sort()).toEqual(["B", "C"]);
   });
 
-  it("reuses fresh per-source results and probes only cache misses", async () => {
+  it("probes every node even when fresh results already exist", async () => {
     const checkedAt = new Date().toISOString();
     const cachedNodes = [
       { ...nodes[0], _health: { s1: { status: "ok", delayMs: 12, checkedAt } } },
@@ -79,8 +79,10 @@ describe("runNodeHealthChecks", () => {
     });
 
     expect(mocks.runMihomoHealthCheck).toHaveBeenCalledTimes(1);
-    expect(mocks.runMihomoHealthCheck.mock.calls[0][0].nodes.map((item: { name: string }) => item.name)).toEqual(["B"]);
-    expect(result.nodes.find((item) => item.name === "A")?.health.s1).toMatchObject({ delayMs: 12 });
+    expect(
+      mocks.runMihomoHealthCheck.mock.calls[0][0].nodes.map((item: { name: string }) => item.name).sort()
+    ).toEqual(["A", "B"]);
+    expect(result.nodes.find((item) => item.name === "A")?.health.s1).toMatchObject({ status: "ok" });
   });
 
   it("returns only the requested sources instead of sibling history", async () => {

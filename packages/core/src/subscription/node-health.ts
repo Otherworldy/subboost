@@ -10,7 +10,7 @@ import { ORIGIN_NAME_KEY, SOURCE_IDS_KEY, getNodeSourceIds } from "./node-source
  */
 
 export const DEFAULT_HEALTH_CHECK = {
-  url: "https://www.google.com/",
+  url: "http://cp.cloudflare.com/generate_204",
   maxDelayMs: 5000,
   concurrency: 20,
 } as const;
@@ -19,7 +19,6 @@ export const HEALTH_CHECK_MAX_DELAY_MIN_MS = 100;
 export const HEALTH_CHECK_MAX_DELAY_MAX_MS = 60000;
 export const HEALTH_CHECK_CONCURRENCY_MIN = 1;
 export const HEALTH_CHECK_CONCURRENCY_MAX = 100;
-export const HEALTH_CHECK_CACHE_TTL_MS = 60 * 1000;
 
 export type NodeHealthStatus = "ok" | "fail" | "unsupported";
 
@@ -133,23 +132,6 @@ export function getNodeHealthResults(node: ParsedNode): Record<string, NodeHealt
   return out;
 }
 
-/** 仅复用短时间内同一来源的结果，避免重复启动 mihomo。 */
-export function getFreshNodeHealthResults(
-  nodes: ReadonlyArray<ParsedNode>,
-  sourceId: string,
-  now = Date.now()
-): Map<string, NodeHealthResult> {
-  const results = new Map<string, NodeHealthResult>();
-  for (const node of nodes) {
-    const result = getNodeHealthResults(node)[sourceId];
-    if (!result) continue;
-    const checkedAt = Date.parse(result.checkedAt);
-    if (!Number.isFinite(checkedAt) || checkedAt > now || now - checkedAt >= HEALTH_CHECK_CACHE_TTL_MS) continue;
-    results.set(node.name, result);
-  }
-  return results;
-}
-
 export function withNodeHealthResult(
   node: ParsedNode,
   sourceId: string,
@@ -240,9 +222,9 @@ export function summarizeNodeHealth(node: ParsedNode): NodeHealthSummary {
 }
 
 /**
- * 下游可见性：节点任一来源未知、任一来源未测（无结果）、或任一来源测活成功即可见；
- * 仅当全部已知来源都有测活结果且都显式失败/不支持时才隐藏。
- * 不区分手动/自动测活：只要来源有结果，失败即过滤。
+ * 下游可见性：节点任一来源未知、任一来源未测（无结果）、或任一来源测活成功即可见。
+ * 仅当“开启自动测活”的来源全部有测活结果且都显式失败/不支持时才隐藏。
+ * 关闭自动测活的来源不参与过滤：即使残留手动测活的失败结果，也不影响节点可见性。
  */
 export function isNodeVisibleToDownstream(
   node: ParsedNode,
@@ -252,14 +234,18 @@ export function isNodeVisibleToDownstream(
   if (sourceIds.length === 0) return true;
 
   const knownIds = new Set<string>();
+  const filteringSourceIds = new Set<string>();
   for (const source of sources) {
     const id = (source.id || "").trim();
-    if (id) knownIds.add(id);
+    if (!id) continue;
+    knownIds.add(id);
+    if (resolveSourceHealthCheck(source).enabled) filteringSourceIds.add(id);
   }
 
   const results = getNodeHealthResults(node);
   for (const sourceId of sourceIds) {
     if (!knownIds.has(sourceId)) return true;
+    if (!filteringSourceIds.has(sourceId)) return true;
     const result = results[sourceId];
     if (!result || result.status === "ok") return true;
   }

@@ -324,7 +324,7 @@ describe("local subscription service", () => {
     expect(mocks.runMihomoHealthCheck).toHaveBeenCalledTimes(4);
   });
 
-  it("reuses fresh health results on save and invalidates them when settings change", async () => {
+  it("always probes enabled sources on save and invalidates results when settings change", async () => {
     const checkedAt = new Date().toISOString();
     const healthSource = {
       id: "s1",
@@ -343,13 +343,18 @@ describe("local subscription service", () => {
       nodes: [cachedNode],
       config: { sources: [healthSource] },
     });
-    expect(mocks.runMihomoHealthCheck).not.toHaveBeenCalled();
+    // 已有结果也重新探测，不使用过期结果
+    expect(mocks.runMihomoHealthCheck).toHaveBeenCalledTimes(1);
+    expect(mocks.runMihomoHealthCheck).toHaveBeenCalledWith(
+      expect.objectContaining({ nodes: [expect.objectContaining({ name: "Cached" })] })
+    );
     expect(mocks.prisma.subscription.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ encryptedNodes: expect.stringContaining('"_health"') }),
       })
     );
 
+    mocks.runMihomoHealthCheck.mockClear();
     mocks.prisma.subscription.findFirst.mockResolvedValueOnce(
       row({
         encryptedNodes: JSON.stringify([cachedNode]),
@@ -397,7 +402,11 @@ describe("local subscription service", () => {
     await updateSubscription("owner-1", "sub-1", {
       config: { sources: [healthSource] },
     });
-    expect(mocks.runMihomoHealthCheck).not.toHaveBeenCalled();
+    // 重新开启自动测活后同样立即重新探测
+    expect(mocks.runMihomoHealthCheck).toHaveBeenCalledTimes(1);
+    expect(mocks.runMihomoHealthCheck).toHaveBeenCalledWith(
+      expect.objectContaining({ nodes: [expect.objectContaining({ name: "Cached" })] })
+    );
   });
 
   it("refreshes subscriptions with health callbacks wired through", async () => {
@@ -524,6 +533,54 @@ describe("local subscription service", () => {
     await expect(
       createSubscription("owner-1", { name: "Too many", nodes: Array.from({ length: 10_001 }, () => null) })
     ).rejects.toThrow("Node count cannot exceed 10000");
+  });
+
+  it("accepts custom subscription tokens and rejects invalid or taken ones", async () => {
+    await createSubscription("owner-1", {
+      name: "Custom token",
+      nodes: [node("T")],
+      token: " my-sub-001 ",
+    });
+    expect(mocks.prisma.subscription.create).toHaveBeenLastCalledWith({
+      data: expect.objectContaining({ token: "my-sub-001" }),
+      include: { autoUpdateState: true },
+    });
+
+    await expect(
+      createSubscription("owner-1", { name: "Bad", nodes: [node()], token: "ab" })
+    ).rejects.toThrow("订阅链接标识仅支持 4-64 位字母、数字、下划线或短横线");
+    await expect(
+      createSubscription("owner-1", { name: "Bad", nodes: [node()], token: "a b" })
+    ).rejects.toThrow("订阅链接标识仅支持 4-64 位字母、数字、下划线或短横线");
+    await expect(
+      createSubscription("owner-1", { name: "Bad", nodes: [node()], token: 123 })
+    ).rejects.toThrow("订阅链接标识必须是字符串");
+
+    mocks.prisma.subscription.create.mockRejectedValueOnce(
+      Object.assign(new Error("Unique constraint failed"), {
+        code: "P2002",
+        meta: { target: ["token"] },
+      })
+    );
+    await expect(
+      createSubscription("owner-1", { name: "Taken", nodes: [node()], token: "taken" })
+    ).rejects.toThrow("该订阅链接标识已被使用，请更换后重试");
+
+    // Prisma 7 + adapter-pg：冲突字段位于 driverAdapterError.cause.constraint.fields
+    mocks.prisma.subscription.create.mockRejectedValueOnce(
+      Object.assign(new Error("Unique constraint failed"), {
+        code: "P2002",
+        meta: {
+          modelName: "Subscription",
+          driverAdapterError: {
+            cause: { constraint: { fields: ["token"] } },
+          },
+        },
+      })
+    );
+    await expect(
+      createSubscription("owner-1", { name: "Taken2", nodes: [node()], token: "taken2" })
+    ).rejects.toThrow("该订阅链接标识已被使用，请更换后重试");
   });
 
   it("validates node filters and permits provider-only output on create", async () => {

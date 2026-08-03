@@ -6,7 +6,6 @@ import { buildProxyProvidersFromConfig } from "@subboost/core/subscription/proxy
 import {
   applyNodeHealthResults,
   filterNodesByHealth,
-  getFreshNodeHealthResults,
   getHealthCheckCacheConfigKey,
   getNodeHealthResults,
   getNodeHealthSourceDescriptors,
@@ -205,6 +204,18 @@ export function generateLocalSubscriptionToken(): string {
   return randomBytes(32).toString("base64url");
 }
 
+/** 可选的自定义订阅链接标识：留空返回 ""（调用方随机生成）。 */
+export function normalizeLocalSubscriptionToken(value: unknown): string {
+  if (value === undefined || value === null) return "";
+  if (typeof value !== "string") throw new Error("订阅链接标识必须是字符串");
+  const token = value.trim();
+  if (!token) return "";
+  if (!/^[A-Za-z0-9_-]{4,64}$/.test(token)) {
+    throw new Error("订阅链接标识仅支持 4-64 位字母、数字、下划线或短横线");
+  }
+  return token;
+}
+
 export function readSubscriptionSecrets(row: SubscriptionRow) {
   return {
     urls: decryptJson<string[]>(row.encryptedUrls, []),
@@ -276,19 +287,40 @@ export async function createSubscription(
   const autoUpdateInterval = normalizeLocalAutoUpdateIntervalSeconds(body.autoUpdateInterval);
   const subscriptionInfo = normalizeSubscriptionInfoForPersistence(body.subscriptionInfo) ?? {};
 
-  const row = await prisma.subscription.create({
-    data: {
-      ownerId,
-      name,
-      token: generateLocalSubscriptionToken(),
-      encryptedUrls: encryptJson(urls),
-      encryptedNodes: encryptJson(nodesWithHealth),
-      encryptedConfig: encryptJson(config),
-      encryptedSubscriptionInfo: encryptJson(subscriptionInfo),
-      autoUpdateInterval,
-    },
-    include: { autoUpdateState: true },
-  });
+  const subscriptionToken = normalizeLocalSubscriptionToken(body.token);
+  let row: SubscriptionRow;
+  try {
+    row = await prisma.subscription.create({
+      data: {
+        ownerId,
+        name,
+        token: subscriptionToken || generateLocalSubscriptionToken(),
+        encryptedUrls: encryptJson(urls),
+        encryptedNodes: encryptJson(nodesWithHealth),
+        encryptedConfig: encryptJson(config),
+        encryptedSubscriptionInfo: encryptJson(subscriptionInfo),
+        autoUpdateInterval,
+      },
+      include: { autoUpdateState: true },
+    });
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      (error as { code?: unknown }).code === "P2002"
+    ) {
+      const meta = (error as { meta?: { target?: unknown; driverAdapterError?: { cause?: { constraint?: { fields?: string[] } } } } }).meta;
+      const target = meta?.target;
+      const fields = meta?.driverAdapterError?.cause?.constraint?.fields;
+      if (
+        (Array.isArray(target) && target.includes("token")) ||
+        (Array.isArray(fields) && fields.includes("token"))
+      ) {
+        throw new Error("该订阅链接标识已被使用，请更换后重试");
+      }
+    }
+    throw error;
+  }
   return { subscription: formatSubscription(row), nodes: nodesWithHealth };
 }
 
@@ -440,23 +472,21 @@ export function buildSubscriptionFetchCallbacks() {
 }
 
 /** 创建/更新订阅保存前，对开启自动测活的源立即测活并合并结果；内核系统性失败时抛出。
- * onProgress 用于流式回传测活进度（tested/total），不传则一次性完成。 */
+ * onProgress 用于流式回传测活进度（tested/total），不传则一次性完成。
+ * 每次都重新探测全部节点，不使用过期结果。 */
 async function runSubscriptionHealthChecks(
   nodes: ParsedNode[],
   sources: SavedSource[],
   onProgress?: (tested: number, total: number) => void
 ): Promise<ParsedNode[]> {
   let next = nodes;
-  const now = Date.now();
   let tested = 0;
   let total = 0;
   for (const source of sources) {
     if (source.type === "url" && source.useProxyProviders) continue;
     const config = resolveSourceHealthCheck(source);
     if (!config.enabled) continue;
-    const sourceNodes = next.filter((node) => getNodeSourceIds(node).includes(source.id));
-    const cached = getFreshNodeHealthResults(sourceNodes, source.id, now);
-    total += sourceNodes.filter((node) => !cached.has(node.name)).length;
+    total += next.filter((node) => getNodeSourceIds(node).includes(source.id)).length;
   }
   if (total > 0 && onProgress) onProgress(0, total);
   for (const source of sources) {
@@ -464,11 +494,9 @@ async function runSubscriptionHealthChecks(
     const config = resolveSourceHealthCheck(source);
     if (!config.enabled) continue;
     const sourceNodes = next.filter((node) => getNodeSourceIds(node).includes(source.id));
-    const cached = getFreshNodeHealthResults(sourceNodes, source.id, now);
-    const pendingNodes = sourceNodes.filter((node) => !cached.has(node.name));
-    if (pendingNodes.length === 0) continue;
+    if (sourceNodes.length === 0) continue;
     const results = await runMihomoHealthCheck({
-      nodes: pendingNodes,
+      nodes: sourceNodes,
       config,
       ...(onProgress
         ? {

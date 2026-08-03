@@ -1,6 +1,5 @@
 import {
   applyNodeHealthResults,
-  getFreshNodeHealthResults,
   getNodeHealthResults,
   HEALTH_RESULTS_KEY,
   normalizeSourceHealthCheck,
@@ -59,7 +58,7 @@ function normalizeSources(raw: unknown): NodeHealthCheckSourceLike[] {
 
 /**
  * 手动测活（不受自动开关限制）：按范围选择来源并立即测试，返回按节点归并的结果。
- * 一分钟内的同一来源结果直接复用；其余节点由模块队列串行启动内核测试。
+ * 每次调用都重新探测全部节点，不使用过期结果。
  * 传 onNodeResult 时每个节点出结果立即回调（用于流式回显），不传则一次性返回。
  */
 export async function runNodeHealthChecks(params: {
@@ -106,16 +105,11 @@ export async function runNodeHealthChecks(params: {
     if (sourceNodes.length === 0) continue;
 
     const onNodeResult = params.onNodeResult;
-    const results = getFreshNodeHealthResults(sourceNodes, sourceId);
-    const pendingNodes = sourceNodes.filter((node) => !results.has(node.name));
-    if (pendingNodes.length > 0) {
-      const freshResults = await runMihomoHealthCheck({
-        nodes: pendingNodes,
-        config: resolveSourceHealthCheck(source),
-        ...(onNodeResult ? { onResult: (nodeName, result) => onNodeResult(nodeName, sourceId, result) } : {}),
-      });
-      for (const [name, result] of freshResults) results.set(name, result);
-    }
+    const results = await runMihomoHealthCheck({
+      nodes: sourceNodes,
+      config: resolveSourceHealthCheck(source),
+      ...(onNodeResult ? { onResult: (nodeName, result) => onNodeResult(nodeName, sourceId, result) } : {}),
+    });
     currentNodes = applyNodeHealthResults(currentNodes, sourceId, results);
   }
 

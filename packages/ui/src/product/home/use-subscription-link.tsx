@@ -144,6 +144,7 @@ export function useSubscriptionLink({
   );
   const [subscriptionDialog, setSubscriptionDialog] = React.useState(false);
   const [subscriptionName, setSubscriptionName] = React.useState("");
+  const [subscriptionToken, setSubscriptionToken] = React.useState("");
   const [subscriptionUrl, setSubscriptionUrl] = React.useState("");
   const [autoUpdateEnabled, setAutoUpdateEnabled] = React.useState(false);
   const [autoUpdateHours, setAutoUpdateHours] = React.useState(autoUpdatePolicy.defaultHours);
@@ -201,6 +202,7 @@ export function useSubscriptionLink({
         ? editingSubscription?.name || ""
         : `我的配置 ${formatDateInBeijing(new Date())}`
     );
+    setSubscriptionToken("");
     setAutoUpdateEnabled(nextAutoUpdateEnabled);
     setAutoUpdateHours(nextAutoUpdateHours);
     setSmartNodeMatchingEnabled(editingSubscription?.smartNodeMatchingEnabled !== false);
@@ -322,6 +324,7 @@ export function useSubscriptionLink({
 
       const payload = {
           name: subscriptionName,
+          token: subscriptionToken.trim() || undefined,
           templateId: appliedTemplateId,
           autoUpdateInterval: nextAutoUpdateInterval,
           urls: storeSources
@@ -508,6 +511,7 @@ export function useSubscriptionLink({
     smartNodeMatchingEnabled,
     storeSources,
     subscriptionName,
+    subscriptionToken,
     subscriptionAdapter,
     template,
     testInterval,
@@ -538,6 +542,8 @@ export function useSubscriptionLink({
     setSubscriptionDialog,
     subscriptionName,
     setSubscriptionName,
+    subscriptionToken,
+    setSubscriptionToken,
     subscriptionUrl,
     setSubscriptionUrl,
     autoUpdateEnabled,

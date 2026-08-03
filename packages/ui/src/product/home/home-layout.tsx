@@ -42,6 +42,8 @@ type SubscriptionLinkState = {
   setSubscriptionDialog: (open: boolean) => void;
   subscriptionName: string;
   setSubscriptionName: (value: string) => void;
+  subscriptionToken: string;
+  setSubscriptionToken: (value: string) => void;
   subscriptionUrl: string;
   autoUpdateEnabled: boolean;
   setAutoUpdateEnabled: (value: boolean) => void;
@@ -397,6 +399,8 @@ export function HomeLayout({
         subscriptionUrl={subscription.subscriptionUrl}
         subscriptionName={subscription.subscriptionName}
         setSubscriptionName={subscription.setSubscriptionName}
+        subscriptionToken={subscription.subscriptionToken}
+        setSubscriptionToken={subscription.setSubscriptionToken}
         autoUpdateEnabled={subscription.autoUpdateEnabled}
         setAutoUpdateEnabled={subscription.setAutoUpdateEnabled}
         autoUpdateHours={subscription.autoUpdateHours}

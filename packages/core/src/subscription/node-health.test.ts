@@ -8,7 +8,6 @@ import {
   HEALTH_CHECK_MAX_DELAY_MIN_MS,
   HEALTH_RESULTS_KEY,
   filterNodesByHealth,
-  getFreshNodeHealthResults,
   getHealthCheckCacheConfigKey,
   getNodeHealthResults,
   isNodeVisibleToDownstream,
@@ -133,33 +132,6 @@ describe("node health results", () => {
     });
   });
 
-  it("reuses only results inside the short cache window", () => {
-    const now = Date.parse("2026-01-01T00:01:00.000Z");
-    const nodes = [
-      node({
-        name: "fresh",
-        [HEALTH_RESULTS_KEY]: {
-          a: { status: "ok", delayMs: 10, checkedAt: "2026-01-01T00:00:59.000Z" },
-        },
-      }),
-      node({
-        name: "expired",
-        [HEALTH_RESULTS_KEY]: {
-          a: { status: "fail", checkedAt: "2026-01-01T00:00:00.000Z" },
-        },
-      }),
-      node({
-        name: "future",
-        [HEALTH_RESULTS_KEY]: {
-          a: { status: "ok", checkedAt: "2026-01-01T00:01:01.000Z" },
-        },
-      }),
-    ];
-
-    expect([...getFreshNodeHealthResults(nodes, "a", now).keys()]).toEqual(["fresh"]);
-    expect(getFreshNodeHealthResults(nodes, "other", now).size).toBe(0);
-  });
-
   it("writes per-source results without dropping other sources", () => {
     const n = withNodeHealthResult(node(), "a", { status: "ok", delayMs: 100, checkedAt: "t1" });
     const next = withNodeHealthResult(n, "b", { status: "fail", checkedAt: "t2" });
@@ -264,13 +236,33 @@ describe("isNodeVisibleToDownstream", () => {
     expect(isNodeVisibleToDownstream(mixed, sources)).toBe(true);
   });
 
-  it("hides failed nodes even when the source has automatic health checks disabled", () => {
-    // 手动测活结果同样参与过滤：只要来源有结果，失败即隐藏
+  it("keeps nodes visible when a source has automatic health checks disabled", () => {
+    // 关闭自动测活的源不参与过滤：残留的手动测活失败结果不影响可见性
     const manualFail = withNodeHealthResult(node({ [SOURCE_IDS_KEY]: ["plain"] }), "plain", {
       status: "fail",
       checkedAt: "t1",
     });
-    expect(isNodeVisibleToDownstream(manualFail, sources)).toBe(false);
+    expect(isNodeVisibleToDownstream(manualFail, sources)).toBe(true);
+
+    const mixed = withNodeHealthResult(
+      withNodeHealthResult(node({ [SOURCE_IDS_KEY]: ["plain", "auto"] }), "plain", {
+        status: "fail",
+        checkedAt: "t1",
+      }),
+      "auto",
+      { status: "fail", checkedAt: "t2" }
+    );
+    expect(isNodeVisibleToDownstream(mixed, sources)).toBe(true);
+
+    const allAutoFailed = withNodeHealthResult(
+      withNodeHealthResult(node({ [SOURCE_IDS_KEY]: ["auto", "auto2"] }), "auto", {
+        status: "fail",
+        checkedAt: "t1",
+      }),
+      "auto2",
+      { status: "fail", checkedAt: "t2" }
+    );
+    expect(isNodeVisibleToDownstream(allAutoFailed, sources)).toBe(false);
   });
 });
 

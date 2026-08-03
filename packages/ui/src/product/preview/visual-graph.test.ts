@@ -215,7 +215,7 @@ describe("VisualGraph", () => {
       { name: "Untested", type: "ss", _sourceIds: ["s2"] },
     ];
     mocks.store.sources = [
-      { id: "s1", type: "url", content: "https://a.example/sub" },
+      { id: "s1", type: "url", content: "https://a.example/sub", healthCheck: { enabled: true } },
       { id: "s2", type: "url", content: "https://b.example/sub" },
     ];
     mocks.store.nodeNameFilter = { enabled: false, excludeRegexes: [] };

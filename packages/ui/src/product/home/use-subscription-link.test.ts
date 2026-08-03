@@ -276,6 +276,34 @@ describe("useSubscriptionLink", () => {
     );
   });
 
+  it("includes a custom subscription token in the payload when provided", async () => {
+    const adapter = makeAdapter();
+    let hook = useRenderedHook({ subscriptionAdapter: adapter });
+    hook.setSubscriptionName("Token Sub");
+    hook.setSubscriptionToken(" my-sub-001 ");
+    hook = useRenderedHook({ subscriptionAdapter: adapter });
+
+    await hook.handleCreateSubscription();
+    hook = useRenderedHook({ subscriptionAdapter: adapter });
+
+    expect(adapter.saveSubscription).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({ token: "my-sub-001" }),
+      })
+    , expect.any(Function)
+  );
+
+    hook.setSubscriptionToken("   ");
+    hook = useRenderedHook({ subscriptionAdapter: adapter });
+    await hook.handleCreateSubscription();
+    expect(adapter.saveSubscription).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        payload: expect.not.objectContaining({ token: expect.anything() }),
+      })
+    , expect.any(Function)
+  );
+  });
+
   it("allows adapter-specific decimal auto-update intervals", async () => {
     const adapter = makeAdapter({
       autoUpdateIntervalPolicy: {
