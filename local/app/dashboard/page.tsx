@@ -91,6 +91,30 @@ const localDashboardAdapter: DashboardSurfaceAdapter = {
     await readJsonResponse<{ error?: string }>(response, "保存失败");
   },
   resolveDownloadUrl: resolveLocalDashboardDownloadUrl,
+  exportSubscriptions: async (ids) => {
+    const query = ids.length > 0 ? `?ids=${ids.map((id) => encodeURIComponent(id)).join(",")}` : "";
+    const response = await fetch(`/api/subscriptions/export${query}`);
+    if (!response.ok) throw new Error("导出失败");
+    return response.blob();
+  },
+  importSubscriptions: async (file) => {
+    const response = await fetch("/api/subscriptions/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: await file.text(),
+    });
+    const data = await readJsonResponse<{
+      imported?: string[];
+      failed?: Array<{ name: string; reason: string }>;
+      warnings?: Array<{ name: string; reason: string }>;
+      error?: string;
+    }>(response, "导入失败");
+    return {
+      imported: data.imported ?? [],
+      failed: data.failed ?? [],
+      warnings: data.warnings ?? [],
+    };
+  },
 };
 
 export default function DashboardPage() {

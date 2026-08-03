@@ -58,6 +58,8 @@ vi.mock("lucide-react", () => ({
   Shield: () => null,
   Star: () => null,
   Trash2: () => null,
+  Upload: () => null,
+  X: () => null,
 }));
 vi.mock("@subboost/ui/components/ui/button", () => ({
   Button: (props: any) => {
@@ -98,6 +100,17 @@ vi.mock("@subboost/ui/dashboard/dashboard-format", () => ({
 }));
 vi.mock("@subboost/ui/dashboard/dashboard-refresh-toast", () => ({
   buildRefreshSubscriptionSuccessToast: mocks.buildRefreshSubscriptionSuccessToast,
+}));
+vi.mock("@subboost/ui/components/ui/dialog", () => ({
+  Dialog: (props: any) => {
+    mocks.captures.dialogs.push(props);
+    return React.createElement("div", null, props.children);
+  },
+  DialogContent: (props: any) => React.createElement("div", props, props.children),
+  DialogDescription: (props: any) => React.createElement("p", props, props.children),
+  DialogFooter: (props: any) => React.createElement("footer", props, props.children),
+  DialogHeader: (props: any) => React.createElement("header", props, props.children),
+  DialogTitle: (props: any) => React.createElement("h2", props, props.children),
 }));
 vi.mock("@subboost/ui/dashboard/subscription-settings-dialog", () => ({
   SubscriptionSettingsDialog: (props: any) => {
@@ -225,7 +238,7 @@ function stubDocumentActions() {
 describe("SubscriptionDashboardSurface", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.captures = { buttons: [] };
+    mocks.captures = { buttons: [], dialogs: [] };
     mocks.userStore = { user, isLoading: false, fetchUser: vi.fn() };
     mocks.confirmDialog.mockResolvedValue(true);
     mocks.clipboardWriteText.mockResolvedValue(undefined);
@@ -245,6 +258,7 @@ describe("SubscriptionDashboardSurface", () => {
         origin: "http://localhost",
       },
     });
+
   });
 
   afterEach(() => {
@@ -330,6 +344,37 @@ describe("SubscriptionDashboardSurface", () => {
     expect(setters[6]).toHaveBeenCalledWith(disabledSubscription);
     expect(setters[9]).toHaveBeenCalledWith(false);
     expect(setters[10]).toHaveBeenCalledWith(24);
+  });
+
+  it("opens the export dialog and exports only the selected subscriptions", async () => {
+    stubDocumentActions();
+    vi.stubGlobal("URL", {
+      createObjectURL: vi.fn(() => "blob:test"),
+      revokeObjectURL: vi.fn(),
+    });
+    const exportSubscriptions = vi.fn(async () => new Blob(["{}"], { type: "application/json" }));
+    const { html, setters, adapter } = renderSurface(
+      createAdapter({ exportSubscriptions }),
+      { 0: [subscription, disabledSubscription], 13: true, 14: ["sub-1"] }
+    );
+
+    expect(html).toContain("选择要导出的订阅");
+    expect(html).toContain("已选 1 个");
+
+    mocks.captures.buttons.find((props: any) => props.title === "导出所选订阅").onClick();
+    await flushPromises();
+    expect(exportSubscriptions).toHaveBeenCalledWith(["sub-1"]);
+    expect(mocks.toast).toHaveBeenCalledWith({ title: "已导出 1 个订阅备份" });
+    expect(setters[13]).toHaveBeenCalledWith(false);
+  });
+
+  it("keeps the export button disabled until subscriptions are selected", () => {
+    const exportSubscriptions = vi.fn(async () => new Blob(["{}"], { type: "application/json" }));
+    const { html } = renderSurface(createAdapter({ exportSubscriptions }), { 0: [subscription], 13: true, 14: [] });
+
+    expect(html).toContain("选择要导出的订阅");
+    expect(html).toContain("已选 0 个");
+    expect(mocks.captures.buttons.find((props: any) => props.title === "导出所选订阅").disabled).toBe(true);
   });
 
   it("falls back to legacy copy for non-secure self-host origins", async () => {

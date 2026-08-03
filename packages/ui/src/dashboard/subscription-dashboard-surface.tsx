@@ -16,11 +16,21 @@ import {
   Settings,
   Shield,
   Trash2,
+  Upload,
 } from "lucide-react";
 
 import { Button } from "@subboost/ui/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@subboost/ui/components/ui/card";
+import { ChoiceChip, ChoiceGroup } from "@subboost/ui/components/ui/choice-group";
 import { confirmDialog } from "@subboost/ui/components/ui/confirm-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@subboost/ui/components/ui/dialog";
 import { toast } from "@subboost/ui/components/ui/toaster";
 import { useUserStore, type User } from "@subboost/ui/store/user-store";
 import {
@@ -59,6 +69,12 @@ export type DashboardSurfaceAdapter = {
   ) => Promise<RefreshSubscriptionResponse>;
   updateSubscriptionSettings: (id: string, payload: UpdateSettingsPayload) => Promise<void>;
   resolveDownloadUrl?: (subscription: Subscription) => string;
+  exportSubscriptions?: (ids: string[]) => Promise<Blob>;
+  importSubscriptions?: (file: File) => Promise<{
+    imported: string[];
+    failed: Array<{ name: string; reason: string }>;
+    warnings: Array<{ name: string; reason: string }>;
+  }>;
   renderAnnouncement?: (context: { user: User }) => React.ReactNode;
   renderHeaderActions?: (context: { user: User }) => React.ReactNode;
   renderExtraQuickActions?: (context: { user: User }) => React.ReactNode;
@@ -142,6 +158,10 @@ export function SubscriptionDashboardSurface({ adapter }: Props) {
   );
   const [autoUpdateHours, setAutoUpdateHours] = React.useState<number>(autoUpdatePolicy.defaultHours);
   const [savingSettings, setSavingSettings] = React.useState(false);
+  const [backingUp, setBackingUp] = React.useState(false);
+  const backupFileInputRef = React.useRef<HTMLInputElement>(null);
+  const [exportDialogOpen, setExportDialogOpen] = React.useState(false);
+  const [selectedExportIds, setSelectedExportIds] = React.useState<string[]>([]);
 
   React.useEffect(() => {
     void fetchUser();
@@ -158,6 +178,70 @@ export function SubscriptionDashboardSurface({ adapter }: Props) {
       setIsLoading(false);
     }
   }, [adapter]);
+
+  const handleExportBackup = React.useCallback(
+    async (ids: string[]) => {
+      if (!adapter.exportSubscriptions || backingUp) return;
+      setBackingUp(true);
+      try {
+        const blob = await adapter.exportSubscriptions(ids);
+        const url = URL.createObjectURL(blob);
+        triggerBrowserDownload(url, `subboost-subscriptions-${new Date().toISOString().slice(0, 10)}.json`);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        toast({ title: `已导出 ${ids.length} 个订阅备份` });
+      } catch (error) {
+        toast({ title: "导出失败，请稍后重试", variant: "destructive" });
+      } finally {
+        setBackingUp(false);
+        setExportDialogOpen(false);
+      }
+    },
+    [adapter, backingUp]
+  );
+
+  const toggleExportId = React.useCallback((id: string) => {
+    setSelectedExportIds((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
+  }, []);
+
+  const handleImportBackup = React.useCallback(
+    async (file: File) => {
+      if (!adapter.importSubscriptions || backingUp) return;
+      setBackingUp(true);
+      try {
+        const result = await adapter.importSubscriptions(file);
+        const failedSummary = result.failed.map((f) => `${f.name}（${f.reason}）`).join("；");
+        const warningSummary = result.warnings.map((w) => `${w.name}（${w.reason}）`).join("；");
+        if (result.imported.length > 0 && result.failed.length === 0 && result.warnings.length === 0) {
+          toast({ title: `成功导入 ${result.imported.length} 个订阅，节点已从订阅源恢复` });
+        } else if (result.imported.length > 0) {
+          const details = [failedSummary, warningSummary].filter(Boolean).join("；");
+          toast({
+            title: `成功导入 ${result.imported.length} 个订阅`,
+            description: details,
+            variant: "warning",
+          });
+        } else if (result.failed.length > 0) {
+          toast({
+            title: `导入失败（${result.failed.length} 个）`,
+            description: failedSummary,
+            variant: "destructive",
+          });
+        } else {
+          toast({ title: "备份文件中没有可导入的订阅", variant: "warning" });
+        }
+        await fetchSubscriptions();
+      } catch (error) {
+        toast({
+          title: "导入失败",
+          description: error instanceof Error ? error.message : "请检查备份文件格式",
+          variant: "destructive",
+        });
+      } finally {
+        setBackingUp(false);
+      }
+    },
+    [adapter, backingUp, fetchSubscriptions]
+  );
 
   React.useEffect(() => {
     if (!user) {
@@ -368,6 +452,43 @@ export function SubscriptionDashboardSurface({ adapter }: Props) {
         </div>
         <div className="flex items-center gap-2">
           {adapter.renderHeaderActions?.({ user })}
+          {adapter.exportSubscriptions && (
+            <>
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={() => {
+                  setSelectedExportIds([]);
+                  setExportDialogOpen(true);
+                }}
+                title="选择要导出的订阅，生成备份文件（迁移服务时使用）"
+              >
+                <Download className="h-4 w-4" />
+                导出备份
+              </Button>
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={() => backupFileInputRef.current?.click()}
+                disabled={backingUp}
+                title="从备份文件恢复订阅（链接标识冲突的订阅会跳过）"
+              >
+                <Upload className="h-4 w-4" />
+                导入备份
+              </Button>
+              <input
+                ref={backupFileInputRef}
+                type="file"
+                accept=".json,application/json"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) void handleImportBackup(file);
+                  event.target.value = "";
+                }}
+              />
+            </>
+          )}
           <Button asChild className="gap-2">
             <Link href={newSubscriptionHref}>
               <Plus className="h-4 w-4" />
@@ -442,6 +563,65 @@ export function SubscriptionDashboardSurface({ adapter }: Props) {
         userIsAdmin={user?.isAdmin === true}
         autoUpdatePolicy={autoUpdatePolicy}
       />
+
+      <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>选择要导出的订阅</DialogTitle>
+            <DialogDescription>导出后可在其他服务上导入恢复，节点会在导入时从订阅源重新获取</DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[50vh] overflow-y-auto py-2">
+            {subscriptions.length === 0 ? (
+              <p className="text-sm text-white/50">暂无订阅可导出</p>
+            ) : (
+              <ChoiceGroup label="选择订阅">
+                {subscriptions.map((sub) => (
+                  <ChoiceChip
+                    key={sub.id}
+                    label={sub.name}
+                    selected={selectedExportIds.includes(sub.id)}
+                    onClick={() => toggleExportId(sub.id)}
+                  />
+                ))}
+              </ChoiceGroup>
+            )}
+          </div>
+          {subscriptions.length > 0 && (
+            <div className="flex items-center gap-3 text-xs text-white/50">
+              <button
+                type="button"
+                className="underline-offset-2 hover:text-white hover:underline"
+                onClick={() => setSelectedExportIds(subscriptions.map((sub) => sub.id))}
+              >
+                全选
+              </button>
+              <span>/</span>
+              <button
+                type="button"
+                className="underline-offset-2 hover:text-white hover:underline"
+                onClick={() => setSelectedExportIds([])}
+              >
+                清空
+              </button>
+              <span className="ml-auto">已选 {selectedExportIds.length} 个</span>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setExportDialogOpen(false)}>
+              取消
+            </Button>
+            <Button
+              className="gap-2"
+              disabled={selectedExportIds.length === 0 || backingUp}
+              onClick={() => void handleExportBackup(selectedExportIds)}
+              title="导出所选订阅"
+            >
+              <Download className="h-4 w-4" />
+              导出
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
         {adapter.templatesHref && (

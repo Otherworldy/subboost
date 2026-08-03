@@ -43,6 +43,9 @@ import { normalizeLocalAutoUpdateIntervalSeconds } from "./auto-update-policy";
 export const MAX_NODES_PER_SUBSCRIPTION = 10000;
 export const CACHE_TTL_SECONDS = 3600;
 
+export const SUBSCRIPTION_BACKUP_TYPE = "subboost-subscriptions";
+export const SUBSCRIPTION_BACKUP_VERSION = 1;
+
 export type SubscriptionRow = {
   id: string;
   ownerId: string;
@@ -304,24 +307,165 @@ export async function createSubscription(
       include: { autoUpdateState: true },
     });
   } catch (error) {
-    if (
-      typeof error === "object" &&
-      error !== null &&
-      (error as { code?: unknown }).code === "P2002"
-    ) {
-      const meta = (error as { meta?: { target?: unknown; driverAdapterError?: { cause?: { constraint?: { fields?: string[] } } } } }).meta;
-      const target = meta?.target;
-      const fields = meta?.driverAdapterError?.cause?.constraint?.fields;
-      if (
-        (Array.isArray(target) && target.includes("token")) ||
-        (Array.isArray(fields) && fields.includes("token"))
-      ) {
-        throw new Error("该订阅链接标识已被使用，请更换后重试");
-      }
+    if (isSubscriptionTokenConflictError(error)) {
+      throw new Error("该订阅链接标识已被使用，请更换后重试");
     }
     throw error;
   }
   return { subscription: formatSubscription(row), nodes: nodesWithHealth };
+}
+
+function isSubscriptionTokenConflictError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null || (error as { code?: unknown }).code !== "P2002") {
+    return false;
+  }
+  const meta = (error as { meta?: { target?: unknown; driverAdapterError?: { cause?: { constraint?: { fields?: string[] } } } } }).meta;
+  const target = meta?.target;
+  const fields = meta?.driverAdapterError?.cause?.constraint?.fields;
+  return (
+    (Array.isArray(target) && target.includes("token")) ||
+    (Array.isArray(fields) && fields.includes("token"))
+  );
+}
+
+function stripSourceParseCaches(config: Record<string, unknown>): Record<string, unknown> {
+  if (!Array.isArray(config.sources)) return config;
+  return {
+    ...config,
+    sources: (config.sources as Record<string, unknown>[]).map((source) => {
+      const { lastParsedContent, lastParsedTag, lastParsedNameTemplate, ...rest } = source;
+      return rest;
+    }),
+  };
+}
+
+export type SubscriptionBackup = {
+  type: typeof SUBSCRIPTION_BACKUP_TYPE;
+  version: typeof SUBSCRIPTION_BACKUP_VERSION;
+  exportedAt: string;
+  subscriptions: Array<{
+    name: string;
+    token: string;
+    urls: string[];
+    config: Record<string, unknown>;
+    subscriptionInfo: Record<string, unknown>;
+    autoUpdateInterval: number | null;
+  }>;
+};
+
+export async function exportSubscriptions(ownerId: string, ids?: string[]): Promise<SubscriptionBackup> {
+  const rows = await prisma.subscription.findMany({
+    where: {
+      ownerId,
+      ...(ids && ids.length > 0 ? { id: { in: ids } } : {}),
+    },
+    orderBy: { createdAt: "asc" },
+  });
+  return {
+    type: SUBSCRIPTION_BACKUP_TYPE,
+    version: SUBSCRIPTION_BACKUP_VERSION,
+    exportedAt: new Date().toISOString(),
+    subscriptions: rows.map((row) => {
+      const secrets = readSubscriptionSecrets(row);
+      return {
+        name: row.name,
+        token: row.token,
+        urls: secrets.urls,
+        config: stripSourceParseCaches(secrets.config),
+        subscriptionInfo: secrets.subscriptionInfo,
+        autoUpdateInterval: row.autoUpdateInterval,
+      };
+    }),
+  };
+}
+
+export async function importSubscriptions(
+  ownerId: string,
+  payload: unknown
+): Promise<{
+  imported: string[];
+  failed: Array<{ name: string; reason: string }>;
+  warnings: Array<{ name: string; reason: string }>;
+}> {
+  const rawItems = isRecord(payload) && Array.isArray(payload.subscriptions) ? payload.subscriptions : payload;
+  if (!Array.isArray(rawItems)) {
+    throw new Error("备份文件格式无效：缺少订阅列表");
+  }
+
+  const imported: string[] = [];
+  const failed: Array<{ name: string; reason: string }> = [];
+  const warnings: Array<{ name: string; reason: string }> = [];
+  for (const item of rawItems) {
+    const name = isRecord(item) ? normalizeSubscriptionName(item.name) : "";
+    if (!name) {
+      failed.push({ name: "未命名订阅", reason: "订阅名称无效" });
+      continue;
+    }
+    try {
+      const token = normalizeLocalSubscriptionToken(item.token);
+      if (!token) throw new Error("订阅链接标识无效");
+      const urls = normalizeSubscriptionUrlList(item.urls);
+      const config = normalizeSubscriptionConfigForPersistence(
+        { config: item.config },
+        { mergeExistingConfig: false, defaultSmartNodeMatchingEnabled: true }
+      );
+      const hasSources = Array.isArray(config.sources) && config.sources.length > 0;
+      if (urls.length === 0 && !hasSources) throw new Error("没有订阅源");
+      const subscriptionInfo = normalizeSubscriptionInfoForPersistence(item.subscriptionInfo) ?? {};
+      const autoUpdateInterval = normalizeLocalAutoUpdateIntervalSeconds(item.autoUpdateInterval);
+      let row: SubscriptionRow;
+      try {
+        row = await prisma.subscription.create({
+          data: {
+            ownerId,
+            name,
+            token,
+            encryptedUrls: encryptJson(urls),
+            encryptedNodes: encryptJson([]),
+            encryptedConfig: encryptJson(config),
+            encryptedSubscriptionInfo: encryptJson(subscriptionInfo),
+            autoUpdateInterval,
+          },
+          include: { autoUpdateState: true },
+        });
+      } catch (error) {
+        if (isSubscriptionTokenConflictError(error)) {
+          throw new Error("链接标识已被使用");
+        }
+        throw error;
+      }
+      // 导入后自动通过订阅源拉取/解析恢复节点（不测活），失败不阻塞导入
+      try {
+        const snapshot = await refreshNodeSnapshot({
+          config,
+          urls,
+          storedNodes: [],
+          ...buildSubscriptionFetchCallbacks(),
+          runHealthCheck: undefined,
+        });
+        await prisma.subscription.update({
+          where: { id: row.id },
+          data: {
+            encryptedNodes: encryptJson(snapshot.nodes),
+            encryptedConfig: encryptJson({ ...config, sources: snapshot.savedSources }),
+            encryptedSubscriptionInfo: encryptJson(snapshot.subscriptionInfo),
+          },
+        });
+        if (snapshot.failedSources.length > 0) {
+          warnings.push({ name, reason: `${snapshot.failedSources.length} 个订阅源获取失败` });
+        }
+      } catch (error) {
+        warnings.push({
+          name,
+          reason: error instanceof Error ? `节点获取失败：${error.message}` : "节点获取失败",
+        });
+      }
+      imported.push(name);
+    } catch (error) {
+      failed.push({ name, reason: error instanceof Error ? error.message : "导入失败" });
+    }
+  }
+  return { imported, failed, warnings };
 }
 
 export async function updateSubscription(

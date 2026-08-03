@@ -23,8 +23,8 @@ export type ReadJsonBodyResult =
   | { ok: true; value: unknown }
   | { ok: false; reason: "invalid_json" | "too_large" };
 
-export function json(data: unknown, status = 200): NextResponse {
-  return NextResponse.json(data, { status });
+export function json(data: unknown, status = 200, headers?: HeadersInit): NextResponse {
+  return NextResponse.json(data, { status, headers });
 }
 
 export function apiError(error: string, code: LocalApiErrorCode, status: number): NextResponse {

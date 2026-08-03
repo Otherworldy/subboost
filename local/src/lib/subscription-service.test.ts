@@ -4,10 +4,12 @@ import {
   buildSubscriptionFetchCallbacks,
   createSubscription,
   deleteSubscription,
+  exportSubscriptions,
   formatSubscription,
   formatSubscriptionDetail,
   generateSubscriptionYaml,
   getSubscription,
+  importSubscriptions,
   listSubscriptions,
   persistNodeHealthResults,
   refreshSubscription,
@@ -160,6 +162,7 @@ describe("local subscription service", () => {
       nodes: [node("Fresh")],
       savedSources: [{ id: "source-1", type: "url", content: "https://example.com/sub" }],
       subscriptionInfo: { upload: 1, total: 2048 },
+      failedSources: [],
     });
     mocks.buildManualRefreshFailureResponse.mockReturnValue({ error: "refresh failed" });
     mocks.buildManualRefreshSuccessResponseBody.mockReturnValue({ ok: true, nodeCount: 1 });
@@ -911,5 +914,230 @@ describe("local subscription service", () => {
     mocks.prisma.subscription.findFirst.mockResolvedValueOnce(null);
     await expect(persistNodeHealthResults("owner-1", "sub-missing", [{ name: "A", health: {} }])).resolves.toBe(false);
     expect(mocks.prisma.subscription.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("subscription backup export/import", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.getAppUrl.mockReturnValue("http://127.0.0.1:3001");
+    mocks.prisma.subscription.findMany.mockResolvedValue([row()]);
+  });
+
+  it("exports source definitions without parsed nodes or parse caches", async () => {
+    mocks.prisma.subscription.findMany.mockResolvedValue([
+      row({
+        encryptedConfig: JSON.stringify({
+          sources: [
+            {
+              id: "source-1",
+              type: "url",
+              content: "https://example.com/sub",
+              lastParsedContent: "proxies:\n  - name: x",
+              lastParsedTag: "t1",
+              lastParsedNameTemplate: "{{name}}",
+            },
+          ],
+          smartNodeMatchingEnabled: false,
+        }),
+      }),
+    ]);
+    const backup = await exportSubscriptions("owner-1");
+
+    expect(backup.type).toBe("subboost-subscriptions");
+    expect(backup.version).toBe(1);
+    expect(backup.subscriptions).toHaveLength(1);
+    const item = backup.subscriptions[0];
+    expect(item).toMatchObject({
+      name: "Saved",
+      token: "token-1",
+      urls: ["https://example.com/sub"],
+      autoUpdateInterval: 86400,
+    });
+    expect(item).not.toHaveProperty("nodes");
+    const sources = (item.config.sources as Record<string, unknown>[]);
+    expect(sources[0]).toEqual({
+      id: "source-1",
+      type: "url",
+      content: "https://example.com/sub",
+    });
+    expect((item.config as Record<string, unknown>).smartNodeMatchingEnabled).toBe(false);
+    expect(item.subscriptionInfo).toEqual({ upload: 2048, total: 4096 });
+  });
+
+  it("imports a backup, creates an empty subscription, then restores nodes from sources", async () => {
+    mocks.prisma.subscription.create.mockResolvedValue(row({ name: "Imported", token: "imported-1" }));
+    mocks.refreshNodeSnapshot.mockResolvedValue({
+      nodes: [node("Fetched")],
+      savedSources: [{ id: "s1", type: "url", content: "https://example.com/sub" }],
+      subscriptionInfo: { upload: 9 },
+      failedSources: [],
+    });
+
+    const result = await importSubscriptions("owner-1", {
+      type: "subboost-subscriptions",
+      version: 1,
+      subscriptions: [
+        {
+          name: "Imported",
+          token: "imported-1",
+          urls: ["https://example.com/sub"],
+          config: { sources: [{ id: "s1", type: "url", content: "https://example.com/sub" }] },
+          subscriptionInfo: {},
+          autoUpdateInterval: 3600,
+        },
+      ],
+    });
+
+    expect(result.imported).toEqual(["Imported"]);
+    expect(result.failed).toEqual([]);
+    expect(result.warnings).toEqual([]);
+    const createCall = mocks.prisma.subscription.create.mock.calls[0][0] as {
+      data: { ownerId: string; name: string; token: string; encryptedUrls: string; encryptedNodes: string };
+    };
+    expect(createCall.data).toMatchObject({
+      ownerId: "owner-1",
+      name: "Imported",
+      token: "imported-1",
+      encryptedUrls: JSON.stringify(["https://example.com/sub"]),
+    });
+    expect(JSON.parse(createCall.data.encryptedNodes)).toEqual([]);
+    expect(mocks.refreshNodeSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({ urls: ["https://example.com/sub"], storedNodes: [] })
+    );
+    expect((mocks.refreshNodeSnapshot.mock.calls[0][0] as { runHealthCheck?: unknown }).runHealthCheck).toBeUndefined();
+    const updateCall = mocks.prisma.subscription.update.mock.calls[0][0] as {
+      data: { encryptedNodes: string; encryptedConfig: string };
+    };
+    expect(JSON.parse(updateCall.data.encryptedNodes)[0].name).toBe("Fetched");
+    expect(JSON.parse(updateCall.data.encryptedConfig).sources[0].id).toBe("s1");
+  });
+
+  it("skips conflicting tokens and reports the failure", async () => {
+    mocks.prisma.subscription.create.mockRejectedValueOnce(
+      Object.assign(new Error("conflict"), {
+        code: "P2002",
+        meta: { target: ["token"] },
+      })
+    );
+
+    const result = await importSubscriptions("owner-1", {
+      subscriptions: [
+        {
+          name: "Dup",
+          token: "dup-token",
+          urls: ["https://example.com/sub"],
+          nodes: [node()],
+          config: {},
+          subscriptionInfo: {},
+          autoUpdateInterval: null,
+        },
+      ],
+    });
+
+    expect(result.imported).toEqual([]);
+    expect(result.failed).toEqual([{ name: "Dup", reason: "链接标识已被使用" }]);
+  });
+
+  it("skips conflicting tokens reported via driverAdapterError fields", async () => {
+    mocks.prisma.subscription.create.mockRejectedValueOnce(
+      Object.assign(new Error("conflict"), {
+        code: "P2002",
+        meta: { driverAdapterError: { cause: { constraint: { fields: ["token"] } } } },
+      })
+    );
+
+    const result = await importSubscriptions("owner-1", {
+      subscriptions: [
+        {
+          name: "Dup2",
+          token: "dup-token-2",
+          urls: ["https://example.com/sub"],
+          nodes: [node()],
+          config: {},
+          subscriptionInfo: {},
+          autoUpdateInterval: null,
+        },
+      ],
+    });
+
+    expect(result.failed).toEqual([{ name: "Dup2", reason: "链接标识已被使用" }]);
+  });
+
+  it("continues after a failed item and reports partial success", async () => {
+    mocks.prisma.subscription.create
+      .mockRejectedValueOnce(new Error("bad node"))
+      .mockResolvedValueOnce(row({ name: "Ok", token: "ok-token" }));
+
+    const result = await importSubscriptions("owner-1", {
+      subscriptions: [
+        {
+          name: "Bad",
+          token: "bad-token",
+          urls: ["https://example.com/sub"],
+          nodes: [node("Bad")],
+          config: {},
+          subscriptionInfo: {},
+          autoUpdateInterval: null,
+        },
+        {
+          name: "Ok",
+          token: "ok-token",
+          urls: ["https://example.com/sub"],
+          nodes: [node()],
+          config: {},
+          subscriptionInfo: {},
+          autoUpdateInterval: null,
+        },
+      ],
+    });
+
+    expect(result.imported).toEqual(["Ok"]);
+    expect(result.failed).toEqual([{ name: "Bad", reason: "bad node" }]);
+  });
+
+  it("rejects items without any subscription source", async () => {
+    const result = await importSubscriptions("owner-1", {
+      subscriptions: [
+        {
+          name: "Empty",
+          token: "empty-token",
+          urls: [],
+          config: {},
+          subscriptionInfo: {},
+          autoUpdateInterval: null,
+        },
+      ],
+    });
+
+    expect(result.imported).toEqual([]);
+    expect(result.failed).toEqual([{ name: "Empty", reason: "没有订阅源" }]);
+  });
+
+  it("warns but keeps the subscription when source fetching fails", async () => {
+    mocks.prisma.subscription.create.mockResolvedValue(row({ name: "Offline", token: "offline-1" }));
+    mocks.refreshNodeSnapshot.mockRejectedValue(new Error("network down"));
+
+    const result = await importSubscriptions("owner-1", {
+      subscriptions: [
+        {
+          name: "Offline",
+          token: "offline-1",
+          urls: ["https://example.com/sub"],
+          config: { sources: [{ id: "s1", type: "url", content: "https://example.com/sub" }] },
+          subscriptionInfo: {},
+          autoUpdateInterval: null,
+        },
+      ],
+    });
+
+    expect(result.imported).toEqual(["Offline"]);
+    expect(result.failed).toEqual([]);
+    expect(result.warnings).toEqual([{ name: "Offline", reason: "节点获取失败：network down" }]);
+  });
+
+  it("rejects payloads without a subscription list", async () => {
+    await expect(importSubscriptions("owner-1", { type: "subboost-subscriptions" })).rejects.toThrow("备份文件格式无效");
+    await expect(importSubscriptions("owner-1", "not-an-object")).rejects.toThrow("备份文件格式无效");
   });
 });

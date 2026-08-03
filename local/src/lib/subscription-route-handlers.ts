@@ -3,7 +3,9 @@ import { apiError, json, jsonBodyError, LOCAL_JSON_BODY_LIMITS, readJsonBody } f
 import {
   createSubscription,
   deleteSubscription,
+  exportSubscriptions,
   getSubscription,
+  importSubscriptions,
   listSubscriptions,
   refreshSubscription,
   updateSubscription,
@@ -15,6 +17,34 @@ export function getSubscriptionIdFromQuery(request: Request): string {
 
 export async function listSubscriptionsResponse() {
   return withCurrentAdmin(async (admin) => json({ subscriptions: await listSubscriptions(admin.id) }));
+}
+
+export async function exportSubscriptionsResponse(request: Request) {
+  return withCurrentAdmin(async (admin) => {
+    const ids = new URL(request.url)
+      .searchParams.get("ids")
+      ?.split(",")
+      .map((id) => id.trim())
+      .filter(Boolean);
+    const backup = await exportSubscriptions(admin.id, ids);
+    const filename = `subboost-subscriptions-${new Date().toISOString().slice(0, 10)}.json`;
+    return json(backup, 200, {
+      "Content-Disposition": `attachment; filename="${filename}"`,
+    });
+  });
+}
+
+export async function importSubscriptionsResponse(request: Request) {
+  return withCurrentAdmin(async (admin) => {
+    const parsedBody = await readJsonBody(request, LOCAL_JSON_BODY_LIMITS.subscription);
+    if (!parsedBody.ok) return jsonBodyError(parsedBody);
+    try {
+      const result = await importSubscriptions(admin.id, parsedBody.value);
+      return json(result);
+    } catch (error) {
+      return apiError(error instanceof Error ? error.message : "导入失败", "BAD_REQUEST", 400);
+    }
+  });
 }
 
 type SaveStreamMessage =
