@@ -89,4 +89,23 @@ describe("local subscription YAML route", () => {
       { limit: 120, windowMs: 60_000 }
     );
   });
+
+  it("returns an empty config instead of 404 when every node was filtered out", async () => {
+    mocks.generateSubscriptionYaml.mockResolvedValue({
+      yaml: "proxies: []\n",
+      name: "Test",
+      subscriptionInfo: {},
+      cacheExpirySeconds: 3600,
+      autoUpdateIntervalSeconds: null,
+      isAdmin: true,
+      isEmpty: true,
+    });
+
+    const response = await GET(new Request("https://local.test/config.yaml"), {
+      params: Promise.resolve({ id: "secret-token" }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.text()).resolves.toBe("proxies: []\n");
+  });
 });

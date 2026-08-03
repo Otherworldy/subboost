@@ -33,9 +33,7 @@ export async function GET(request: Request, { params }: RouteContext) {
   }
   const result = await generateSubscriptionYaml(token);
   if (!result) return apiError("Subscription YAML not found.", "NOT_FOUND", 404);
-  if (result.isEmpty) {
-    return apiError("暂无可用节点：导入源均未通过自动测活或已被节点名称过滤。", "NOT_FOUND", 404);
-  }
+  // 全部节点被过滤/测活失败时返回空配置而非 404，避免下游客户端报错
   return new Response(result.yaml, {
     headers: buildSubscriptionResponseHeaders(result.name, result.subscriptionInfo, {
       cacheControl: "no-store",
