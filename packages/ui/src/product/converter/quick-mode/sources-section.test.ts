@@ -430,7 +430,7 @@ describe("quick mode SourcesSection", () => {
     await Promise.resolve();
     expect(mocks.store.runHealthCheck).toHaveBeenCalledWith({ kind: "source", sourceId: "s1" });
     expect(mocks.toast).toHaveBeenCalledWith(
-      expect.objectContaining({ title: "测活完成：1/2 个节点通过", variant: "warning" })
+      expect.objectContaining({ title: "源测速完成：1/2 个节点通过", variant: "warning" })
     );
   });
 

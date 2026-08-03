@@ -49,7 +49,7 @@ export function NodeManagementNodeList({
   setNodeOrder,
   moveNode,
   isListenerPortVisible,
-  healthCheckingNodeName,
+  healthCheckingNodes,
   onHealthCheckNode,
   removeNode,
   restoreDeletedNode,
@@ -78,7 +78,7 @@ export function NodeManagementNodeList({
   setNodeOrder: (nodeName: string, order: number) => void;
   moveNode: (nodeName: string, direction: "up" | "down") => void;
   isListenerPortVisible: boolean;
-  healthCheckingNodeName: string | null;
+  healthCheckingNodes: string[];
   onHealthCheckNode: (nodeName: string) => void;
   removeNode: (nodeName: string) => void;
   restoreDeletedNode: (originName: string) => void;
@@ -226,16 +226,16 @@ export function NodeManagementNodeList({
                         })()}
                         <IconButton
                           label={
-                            healthCheckingNodeName === node.name
+                            healthCheckingNodes.includes(node.name)
                               ? "测活中..."
                               : "测活该节点"
                           }
                           variant="ghost"
                           onClick={() => onHealthCheckNode(node.name)}
-                          disabled={healthCheckingNodeName !== null}
+                          disabled={healthCheckingNodes.length > 0}
                           className="h-6 w-6 flex-shrink-0 p-1 text-white/40 transition-colors hover:bg-white/5 hover:text-emerald-300 disabled:opacity-60"
                         >
-                          {healthCheckingNodeName === node.name ? (
+                          {healthCheckingNodes.includes(node.name) ? (
                             <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
                           ) : (
                             <Activity className="h-3 w-3" aria-hidden="true" />

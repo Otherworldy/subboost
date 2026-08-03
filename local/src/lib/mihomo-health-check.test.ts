@@ -233,12 +233,54 @@ describe("executeHealthCheck", () => {
 
     const results = await executeHealthCheck({ nodes, config: CONFIG, mihomoPath: "/usr/bin/mihomo" }, deps);
 
-    expect([...results.entries()].map(([name, r]) => [name, r.status])).toEqual([
-      ["Timeout", "fail"],
-      ["Error", "fail"],
-      ["NoDelay", "fail"],
-      ["Ok", "ok"],
-    ]);
+    expect([...results.entries()].map(([name, r]) => [name, r.status]).sort()).toEqual(
+      [
+        ["Timeout", "fail"],
+        ["Error", "fail"],
+        ["NoDelay", "fail"],
+        ["Ok", "ok"],
+      ].sort()
+    );
+  });
+
+  it("retries a failed node once and reports ok on the second attempt", async () => {
+    let flakyCalls = 0;
+    const { requestImpl } = makeRequestHandler((path) => {
+      if (path.startsWith("/version")) return { status: 200, body: "{}" };
+      if (path.includes("probe-1")) {
+        flakyCalls += 1;
+        if (flakyCalls === 1) return { status: 504, body: "{}" };
+        return { status: 200, body: JSON.stringify({ delay: 42 }) };
+      }
+      return { status: 200, body: JSON.stringify({ delay: 5 }) };
+    });
+    const { deps, delayImpl } = makeDeps({ requestImpl });
+    const nodes = [vmess("Flaky"), vmess("Ok")];
+
+    const results = await executeHealthCheck({ nodes, config: CONFIG, mihomoPath: "/usr/bin/mihomo" }, deps);
+
+    expect(results.get("Flaky")).toMatchObject({ status: "ok", delayMs: 42 });
+    expect(flakyCalls).toBe(2);
+    expect(delayImpl).toHaveBeenCalledWith(500);
+  });
+
+  it("does not retry nodes the kernel reports as unsupported", async () => {
+    let unsupportedCalls = 0;
+    const { requestImpl } = makeRequestHandler((path) => {
+      if (path.startsWith("/version")) return { status: 200, body: "{}" };
+      if (path.includes("probe-1")) {
+        unsupportedCalls += 1;
+        return { status: 404, body: "{}" };
+      }
+      return { status: 200, body: JSON.stringify({ delay: 5 }) };
+    });
+    const { deps } = makeDeps({ requestImpl });
+    const nodes = [vmess("Weird"), vmess("Ok")];
+
+    const results = await executeHealthCheck({ nodes, config: CONFIG, mihomoPath: "/usr/bin/mihomo" }, deps);
+
+    expect(results.get("Weird")).toMatchObject({ status: "unsupported" });
+    expect(unsupportedCalls).toBe(1);
   });
 
   it("throws a helpful error when the binary is missing", async () => {

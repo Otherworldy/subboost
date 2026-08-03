@@ -96,13 +96,21 @@ export async function runNodeHealthChecks(params: {
 
   let currentNodes = nodes;
   const summary: NodeHealthCheckSummary = { tested: 0, ok: 0, fail: 0, unsupported: 0 };
+  // 本次实际测活的节点（含内核标记为不支持的）：summary 只统计这些节点，
+  // 避免把历史测速结果（_health）也算进去导致数字递增
+  const probedNodeNames = new Set<string>();
 
   for (const sourceId of targetSourceIds) {
     const source = sourceById.get(sourceId);
     if (!source) continue;
     if (source.type === "url" && source.useProxyProviders) continue;
-    const sourceNodes = currentNodes.filter((node) => getNodeSourceIds(node).includes(sourceId));
+    // 单节点测速只探测目标节点本身，其余范围按源探测全部节点
+    const sourceNodes = currentNodes.filter((node) => {
+      if (!getNodeSourceIds(node).includes(sourceId)) return false;
+      return scope.kind !== "node" || node.name === scope.nodeName;
+    });
     if (sourceNodes.length === 0) continue;
+    for (const sourceNode of sourceNodes) probedNodeNames.add(sourceNode.name);
 
     const onNodeResult = params.onNodeResult;
     const results = await runMihomoHealthCheck({
@@ -115,6 +123,7 @@ export async function runNodeHealthChecks(params: {
 
   const healthByNode = new Map<string, Record<string, NodeHealthResult>>();
   for (const node of currentNodes) {
+    if (!probedNodeNames.has(node.name)) continue;
     const health = Object.fromEntries(
       Object.entries(getNodeHealthResults(node)).filter(([sourceId]) => targetSourceIds.has(sourceId))
     );

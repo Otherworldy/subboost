@@ -195,6 +195,9 @@ export interface ConfigState {
   // 正在编辑的已保存订阅 id（仅用于测活结果持久化，不写入本地草稿）
   editingSubscriptionId: string | null;
 
+  // 当前测速中的节点名（含排队等待）：流式回显时逐个移除，测速结束清空
+  healthCheckingNodes: string[];
+
   // 订阅源
   sources: SubscriptionSource[];
 
@@ -373,6 +376,8 @@ export const initialState: ConfigState = {
   parseErrors: [],
   isLoading: false,
   editingSubscriptionId: null,
+  // 当前测速中的节点（含排队等待）：流式回显时逐个移除，结束时清空
+  healthCheckingNodes: [],
   nodeNameFilter: {
     enabled: DEFAULT_NODE_NAME_FILTER_CONFIG.enabled,
     excludeRegexes: [...DEFAULT_NODE_NAME_FILTER_CONFIG.excludeRegexes],

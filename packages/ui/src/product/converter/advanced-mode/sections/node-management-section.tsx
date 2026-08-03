@@ -125,8 +125,8 @@ export function NodeManagementSection({
   const [nameRulesOpen, setNameRulesOpen] = React.useState(false);
   const [nodeSearchKeyword, setNodeSearchKeyword] = React.useState("");
   const [listenerPortEnabled, setListenerPortEnabled] = React.useState(false);
-  const [healthCheckingNodeName, setHealthCheckingNodeName] = React.useState<string | null>(null);
   const interactions = useProductInteractionAdapter();
+  const healthCheckingNodes = useConfigStore((state) => state.healthCheckingNodes);
 
   const [listenerPortDrafts, setListenerPortDrafts] = React.useState<Record<string, string>>({});
   const [listenerPortErrors, setListenerPortErrors] = React.useState<Record<string, string>>({});
@@ -238,18 +238,10 @@ export function NodeManagementSection({
     );
   }, [deletedMarkedNodes, nodeSearchKeyword]);
 
-  const handleHealthCheckNode = React.useCallback(
-    async (nodeName: string) => {
-      setHealthCheckingNodeName(nodeName);
-      try {
-        const outcome = await useConfigStore.getState().runHealthCheck({ kind: "node", nodeName });
-        showHealthRunOutcomeToast(outcome);
-      } finally {
-        setHealthCheckingNodeName((current) => (current === nodeName ? null : current));
-      }
-    },
-    []
-  );
+  const handleHealthCheckNode = React.useCallback(async (nodeName: string) => {
+    const outcome = await useConfigStore.getState().runHealthCheck({ kind: "node", nodeName });
+    showHealthRunOutcomeToast(outcome, { kind: "node", nodeName });
+  }, []);
 
   const getNodeSourceIds = React.useCallback((node: unknown): string[] => {
     if (!node || typeof node !== "object") return [];
@@ -597,7 +589,7 @@ export function NodeManagementSection({
             setNodeOrder={setEffectiveNodeOrder}
             moveNode={moveEffectiveNode}
             isListenerPortVisible={isListenerPortVisible}
-            healthCheckingNodeName={healthCheckingNodeName}
+            healthCheckingNodes={healthCheckingNodes}
             onHealthCheckNode={handleHealthCheckNode}
             removeNode={removeNode}
             restoreDeletedNode={restoreDeletedNode}

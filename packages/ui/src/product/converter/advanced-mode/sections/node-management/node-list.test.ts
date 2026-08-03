@@ -112,7 +112,7 @@ function makeProps(overrides: Partial<React.ComponentProps<typeof NodeManagement
     setNodeOrder: vi.fn(),
     moveNode: vi.fn(),
     isListenerPortVisible: true,
-    healthCheckingNodeName: null,
+    healthCheckingNodes: [],
     onHealthCheckNode: vi.fn(),
     removeNode: vi.fn(),
     restoreDeletedNode: vi.fn(),
@@ -169,7 +169,7 @@ describe("NodeManagementNodeList", () => {
     const html = renderToStaticMarkup(
       React.createElement(NodeManagementNodeList, {
         ...makeProps({
-          healthCheckingNodeName: alpha.name,
+          healthCheckingNodes: [alpha.name],
           onHealthCheckNode,
         }),
       })

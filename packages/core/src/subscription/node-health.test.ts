@@ -97,7 +97,7 @@ describe("resolveSourceHealthCheck", () => {
     const disabled = { healthCheck: { enabled: false, maxDelayMs: 1200 } };
     const changed = { healthCheck: { enabled: true, maxDelayMs: 1300 } };
     const changedUrl = { healthCheck: { enabled: true, maxDelayMs: 1200, url: "https://example.com/ping" } };
-    const changedConcurrency = { healthCheck: { enabled: true, maxDelayMs: 1200, concurrency: 8 } };
+    const changedConcurrency = { healthCheck: { enabled: true, maxDelayMs: 1200, concurrency: 12 } };
 
     expect(getHealthCheckCacheConfigKey(enabled)).toBe(getHealthCheckCacheConfigKey(disabled));
     expect(getHealthCheckCacheConfigKey(enabled)).not.toBe(getHealthCheckCacheConfigKey(changed));
@@ -110,7 +110,7 @@ describe("resolveSourceHealthCheck", () => {
       resolveSourceHealthCheck({
         healthCheck: { enabled: true, maxDelayMs: 1200 },
       })
-    ).toEqual({ enabled: true, url: DEFAULT_HEALTH_CHECK.url, maxDelayMs: 1200, concurrency: 20 });
+    ).toEqual({ enabled: true, url: DEFAULT_HEALTH_CHECK.url, maxDelayMs: 1200, concurrency: 8 });
   });
 });
 

@@ -5,6 +5,7 @@ import {
   type NodeHealthResult,
 } from "@subboost/core/subscription/node-health";
 import { getActiveProductApiAdapter } from "@subboost/ui/product/api-adapter";
+import { getNodeSourceIds } from "@subboost/core/subscription/node-source-state";
 import type { ConfigActions, HealthCheckScope, HealthRunOutcome } from "../definitions";
 import type { GetState, SetAndGenerateConfig, SetState } from "../store-types";
 
@@ -77,6 +78,16 @@ export function createHealthActions(
 
       const state = get();
       const runId = ++latestRunId;
+      // 标记测速中的节点（含排队等待）：流式回显时逐个移除，结束时清空
+      const pendingNodeNames = (() => {
+        if (scope.kind === "node") return [scope.nodeName];
+        const out: string[] = [];
+        for (const node of state.nodes) {
+          if (scope.kind === "all" || getNodeSourceIds(node).includes(scope.sourceId)) out.push(node.name);
+        }
+        return out;
+      })();
+      set({ healthCheckingNodes: pendingNodeNames });
       try {
         const response = await api.runHealthCheck(
           {
@@ -87,6 +98,9 @@ export function createHealthActions(
           },
           (name, sourceId, result) => {
             if (runId !== latestRunId) return; // 已被更新的测活请求取代，丢弃过期回显
+            set((current) => ({
+              healthCheckingNodes: current.healthCheckingNodes.filter((nodeName) => nodeName !== name),
+            }));
             mergeSingleResult(setAndGenerateConfig, name, sourceId, result);
           }
         );
@@ -98,6 +112,8 @@ export function createHealthActions(
       } catch (error) {
         if (runId !== latestRunId) return { ok: false, error: null };
         return { ok: false, error: error instanceof Error ? error.message : "测活失败" };
+      } finally {
+        if (runId === latestRunId) set({ healthCheckingNodes: [] });
       }
     },
   };

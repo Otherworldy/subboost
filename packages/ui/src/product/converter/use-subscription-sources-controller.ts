@@ -287,7 +287,7 @@ export function useSubscriptionSourcesController({ mode }: Options) {
       setHealthCheckingSourceId(sourceId);
       try {
         const outcome = await useConfigStore.getState().runHealthCheck({ kind: "source", sourceId });
-        showHealthRunOutcomeToast(outcome);
+        showHealthRunOutcomeToast(outcome, { kind: "source", sourceId });
       } finally {
         setHealthCheckingSourceId((current) => (current === sourceId ? null : current));
       }

@@ -171,6 +171,7 @@ describe("VisualGraph", () => {
       testInterval: 300,
       ruleProviderBaseUrl: "https://rules.example",
       setProxyGroupOrder: vi.fn(),
+      healthCheckingNodes: [],
     };
   });
 
@@ -274,6 +275,7 @@ describe("VisualGraph", () => {
       testInterval: 300,
       ruleProviderBaseUrl: "https://rules.example",
       setProxyGroupOrder: vi.fn(),
+      healthCheckingNodes: [],
     };
 
     const { html } = renderGraph();

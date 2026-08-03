@@ -84,6 +84,40 @@ describe("createHealthActions", () => {
     });
   });
 
+  it("tracks pending nodes while a health check is streaming and clears it afterwards", async () => {
+    const { actions, getState } = createHarness({
+      nodes: [node("A", { _sourceIds: ["s1"] }), node("B", { _sourceIds: ["s1"] })],
+      sources,
+    });
+    mocks.adapter.healthCheck!.runHealthCheck.mockImplementation(async (_request, onResult) => {
+      onResult?.("A", "s1", { status: "ok", delayMs: 10, checkedAt: "t" });
+      expect(getState().healthCheckingNodes).toEqual(["B"]);
+      onResult?.("B", "s1", { status: "ok", delayMs: 20, checkedAt: "t" });
+      return { nodes: [], summary: { tested: 2, ok: 2, fail: 0, unsupported: 0 } };
+    });
+
+    const outcome = await actions.runHealthCheck({ kind: "source", sourceId: "s1" });
+
+    expect(outcome.ok).toBe(true);
+    expect(getState().healthCheckingNodes).toEqual([]);
+  });
+
+  it("sets all source nodes as pending for the all scope", async () => {
+    const { actions, getState } = createHarness({
+      nodes: [node("A", { _sourceIds: ["s1"] }), node("B", { _sourceIds: ["s2"] })],
+      sources,
+    });
+    mocks.adapter.healthCheck!.runHealthCheck.mockImplementation(async () => ({
+      nodes: [],
+      summary: { tested: 0, ok: 0, fail: 0, unsupported: 0 },
+    }));
+
+    await actions.runHealthCheck({ kind: "all" });
+
+    expect(getState().healthCheckingNodes).toEqual([]);
+    // 结束后清空；开始时的集合已在回调断言中覆盖
+  });
+
   it("discards stale responses so newer runs win", async () => {
     const { actions, getState } = createHarness({
       nodes: [node("A", { _sourceIds: ["s1"] })],

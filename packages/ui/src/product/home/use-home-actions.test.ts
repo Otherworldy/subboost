@@ -124,7 +124,7 @@ describe("useHomeActions", () => {
 
     expect(runHealthCheck).toHaveBeenCalledWith({ kind: "all" });
     expect(mocks.toast).toHaveBeenCalledWith(
-      expect.objectContaining({ title: "测活完成：2/3 个节点通过", variant: "warning" })
+      expect.objectContaining({ title: "全部测速完成：2/3 个节点通过", variant: "warning" })
     );
   });
 

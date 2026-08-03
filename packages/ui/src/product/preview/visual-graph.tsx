@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Network, Server } from "lucide-react";
+import { Loader2, Network, Server } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { ProtocolBadge } from "@subboost/ui/components/ui/protocol-badge";
 import { cn } from "@subboost/ui/lib/utils";
@@ -45,6 +45,7 @@ export function VisualGraph() {
     testInterval,
     ruleProviderBaseUrl,
     setProxyGroupOrder,
+    healthCheckingNodes,
   } = useConfigStore(
     useShallow((state) => ({
       nodes: state.nodes,
@@ -63,6 +64,7 @@ export function VisualGraph() {
       testInterval: state.testInterval,
       ruleProviderBaseUrl: state.ruleProviderBaseUrl,
       setProxyGroupOrder: state.setProxyGroupOrder,
+      healthCheckingNodes: state.healthCheckingNodes,
     })),
   );
   // 与 YAML 预览一致：先按测活结果过滤（失败/不支持的来源节点不输出），再做名称过滤
@@ -491,24 +493,28 @@ export function VisualGraph() {
               key={node.name + idx}
               className="flex items-center gap-2 rounded-md px-2 py-1 text-[10px] hover:bg-white/5"
             >
-              <div
-                className={cn(
-                  "h-2 w-2 rounded-full flex-shrink-0 shadow-[0_0_0_3px_rgba(255,255,255,0.03)]",
-                  node.type === "ss"
-                    ? "bg-blue-400"
-                    : node.type === "vmess"
-                      ? "bg-green-400"
-                      : node.type === "vless"
-                        ? "bg-purple-400"
-                        : node.type === "trojan"
-                          ? "bg-red-400"
-                          : node.type === "anytls"
-                            ? "bg-teal-400"
-                            : node.type === "hysteria2"
-                              ? "bg-orange-400"
-                              : "bg-gray-400",
-                )}
-              />
+              {healthCheckingNodes.includes(node.name) ? (
+                <Loader2 className="h-2.5 w-2.5 flex-shrink-0 animate-spin text-indigo-300" aria-label="测速中" />
+              ) : (
+                <div
+                  className={cn(
+                    "h-2 w-2 rounded-full flex-shrink-0 shadow-[0_0_0_3px_rgba(255,255,255,0.03)]",
+                    node.type === "ss"
+                      ? "bg-blue-400"
+                      : node.type === "vmess"
+                        ? "bg-green-400"
+                        : node.type === "vless"
+                          ? "bg-purple-400"
+                          : node.type === "trojan"
+                            ? "bg-red-400"
+                            : node.type === "anytls"
+                              ? "bg-teal-400"
+                              : node.type === "hysteria2"
+                                ? "bg-orange-400"
+                                : "bg-gray-400",
+                  )}
+                />
+              )}
               <span
                 className="min-w-0 flex-1 truncate text-white/90 font-medium"
                 title={node.name}

@@ -34,6 +34,9 @@ const STARTUP_TIMEOUT_MS = 10_000;
 const REQUEST_GRACE_MS = 2_000;
 const OVERALL_TIMEOUT_MS = 10 * 60_000;
 const STOP_GRACE_MS = 3_000;
+// 失败节点重试前的退避：批量测速时大量并发建连容易触发节点服务器限流/排队，
+// 退避后重试一次可吸收这类瞬时失败（单节点测速不受影响）。
+const RETRY_DELAY_MS = 500;
 
 export type MihomoRequestResult = { status: number; body: string };
 
@@ -242,6 +245,27 @@ async function probeGroup(group: ProbeGroupEntry[], context: ProbeContext, deps:
     }
 
     const timeoutMs = config.maxDelayMs + context.requestGraceMs;
+    // 单节点探测：404=内核不支持（确定性，不重试）；其余失败可重试
+    const probeDelay = async (probeName: string): Promise<NodeHealthResult> => {
+      const delayPath = `/proxies/${encodeURIComponent(probeName)}/delay?url=${encodeURIComponent(config.url)}&timeout=${config.maxDelayMs}`;
+      try {
+        const res = await deps.requestImpl(context.socketPath, "GET", delayPath, timeoutMs);
+        if (res.status === 404) {
+          // 内核未加载该代理类型：按不支持处理，不中断同组其他节点
+          return { status: "unsupported", checkedAt };
+        }
+        if (res.status === 200) {
+          const { delay: delayMs } = await readUrlResult(res.body);
+          if (typeof delayMs === "number") {
+            return { status: "ok", delayMs, checkedAt };
+          }
+        }
+        return { status: "fail", checkedAt };
+      } catch (error) {
+        if (error instanceof MihomoHealthCheckError) throw error;
+        return { status: "fail", checkedAt };
+      }
+    };
     let index = 0;
     const workers = Array.from({ length: Math.min(config.concurrency, group.length) }, async () => {
       while (index < group.length) {
@@ -252,26 +276,13 @@ async function probeGroup(group: ProbeGroupEntry[], context: ProbeContext, deps:
           recordResult(context, node.name, { status: "fail", checkedAt });
           continue;
         }
-        try {
-          const delayPath = `/proxies/${encodeURIComponent(probeName)}/delay?url=${encodeURIComponent(config.url)}&timeout=${config.maxDelayMs}`;
-          const res = await deps.requestImpl(context.socketPath, "GET", delayPath, timeoutMs);
-          if (res.status === 404) {
-            // 内核未加载该代理类型：按不支持处理，不中断同组其他节点
-            recordResult(context, node.name, { status: "unsupported", checkedAt });
-            continue;
-          }
-          if (res.status === 200) {
-            const { delay: delayMs } = await readUrlResult(res.body);
-            if (typeof delayMs === "number") {
-              recordResult(context, node.name, { status: "ok", delayMs, checkedAt });
-              continue;
-            }
-          }
-          recordResult(context, node.name, { status: "fail", checkedAt });
-        } catch (error) {
-          if (error instanceof MihomoHealthCheckError) throw error;
-          recordResult(context, node.name, { status: "fail", checkedAt });
+        let result = await probeDelay(probeName);
+        if (result.status === "fail") {
+          // 瞬时失败（并发限流/连接排队）重试一次；再次失败才判定为不通
+          await deps.delayImpl(RETRY_DELAY_MS);
+          result = await probeDelay(probeName);
         }
+        recordResult(context, node.name, result);
       }
     });
     await Promise.all(workers);

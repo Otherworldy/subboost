@@ -198,7 +198,7 @@ export function useHomeActions({
     setHealthCheckingAll(true);
     try {
       const outcome = await useConfigStore.getState().runHealthCheck({ kind: "all" });
-      showHealthRunOutcomeToast(outcome);
+      showHealthRunOutcomeToast(outcome, { kind: "all" });
     } finally {
       setHealthCheckingAll(false);
     }
