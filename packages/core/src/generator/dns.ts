@@ -54,6 +54,18 @@ export const DEFAULT_DNS_CONFIG: DNSConfig = {
       "+.gvt1.com",
     ],
   },
+  // Google Play 下载 CDN 与 YouTube 视频 CDN 在国内常被 DNS 污染到国内 IP，
+  // 直接指定国际 DoH 解析，避免被 geoip:cn 规则截胡导致下载失败
+  "nameserver-policy": {
+    "+.gvt1.com": ["https://dns.google/dns-query", "https://cloudflare-dns.com/dns-query"],
+    "+.gvt2.com": ["https://dns.google/dns-query", "https://cloudflare-dns.com/dns-query"],
+    "+.gvt3.com": ["https://dns.google/dns-query", "https://cloudflare-dns.com/dns-query"],
+    "+.googlevideo.com": ["https://dns.google/dns-query", "https://cloudflare-dns.com/dns-query"],
+    "+.ggpht.com": ["https://dns.google/dns-query", "https://cloudflare-dns.com/dns-query"],
+    "+.googleusercontent.com": ["https://dns.google/dns-query", "https://cloudflare-dns.com/dns-query"],
+    "+.googleapis.com": ["https://dns.google/dns-query", "https://cloudflare-dns.com/dns-query"],
+    "+.gstatic.com": ["https://dns.google/dns-query", "https://cloudflare-dns.com/dns-query"],
+  },
   "fake-ip-filter": [
     "*.lan",
     "stun.*.*.*",
