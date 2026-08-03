@@ -110,7 +110,7 @@ describe("resolveSourceHealthCheck", () => {
       resolveSourceHealthCheck({
         healthCheck: { enabled: true, maxDelayMs: 1200 },
       })
-    ).toEqual({ enabled: true, url: DEFAULT_HEALTH_CHECK.url, maxDelayMs: 1200, concurrency: 8 });
+    ).toEqual({ enabled: true, url: DEFAULT_HEALTH_CHECK.url, maxDelayMs: 1200, concurrency: 20 });
   });
 });
 
