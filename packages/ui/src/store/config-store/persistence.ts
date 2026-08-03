@@ -43,7 +43,7 @@ export function normalizePersistedConfigState(
   const state = (isRecord(persistedState) ? persistedState : {}) as Partial<ConfigState>;
 
   return {
-    ...(state.template === "minimal" || state.template === "standard" || state.template === "full"
+    ...(state.template === "minimal" || state.template === "standard" || state.template === "full" || state.template === "ai"
       ? { template: state.template }
       : {}),
     ...(Array.isArray(state.enabledProxyGroups)

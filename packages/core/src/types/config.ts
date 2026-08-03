@@ -308,7 +308,7 @@ export interface CustomProxyGroup {
 /**
  * 预设模板类型
  */
-export type TemplateType = "minimal" | "standard" | "full";
+export type TemplateType = "minimal" | "standard" | "full" | "ai";
 
 export interface TemplateConfig {
   id: TemplateType;

@@ -14,8 +14,8 @@ describe("quick mode constants", () => {
   });
 
   it("keeps the quick template picker ordered from minimal to full", () => {
-    expect(templates.map((item) => item.id)).toEqual(["minimal", "standard", "full"]);
-    expect(templates.map((item) => item.name)).toEqual(["精简版", "标准版", "完整版"]);
+    expect(templates.map((item) => item.id)).toEqual(["minimal", "standard", "full", "ai"]);
+    expect(templates.map((item) => item.name)).toEqual(["精简版", "标准版", "完整版", "AI 分流版"]);
     expect(templates[0].groups).toBeLessThan(templates[2].groups);
     expect(templates[0].rules).toBeLessThan(templates[2].rules);
     const currentCounts = new Map(

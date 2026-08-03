@@ -29,4 +29,10 @@ export const templates = [
     description: "全部功能 + 扩展规则集",
     ...countsFor("full"),
   },
+  {
+    id: "ai" as TemplateType,
+    name: "AI 分流版",
+    description: "国内外分流 + Grok/Gemini/GPT/Claude 独立分组",
+    ...countsFor("ai"),
+  },
 ];

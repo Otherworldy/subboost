@@ -45,12 +45,26 @@ const FULL_TEMPLATE: TemplateConfig = {
 };
 
 /**
+ * AI 分流模板
+ * 国内外分流 + AI 独立分组（Grok / Gemini / GPT / Claude），适合 AI 重度用户
+ */
+const AI_TEMPLATE: TemplateConfig = {
+  id: "ai",
+  name: "AI 分流版",
+  description: "国内外分流 + Grok/Gemini/GPT/Claude 独立分组，适合 AI 重度用户",
+  groups: getModulesForTemplate("ai"),
+  rules: getModulesForTemplate("ai"),
+  dns: {},
+};
+
+/**
  * 所有预设模板
  */
 export const TEMPLATES: Record<TemplateType, TemplateConfig> = {
   minimal: MINIMAL_TEMPLATE,
   standard: STANDARD_TEMPLATE,
   full: FULL_TEMPLATE,
+  ai: AI_TEMPLATE,
 };
 
 /**

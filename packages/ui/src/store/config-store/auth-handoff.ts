@@ -190,7 +190,7 @@ function normalizeHandoffState(raw: unknown): Partial<ConfigState> | null {
   if (deletedNodeNames) out.deletedNodeNames = deletedNodeNames;
   const deletedNodes = objectArray<ConfigState["deletedNodes"][number]>(raw.deletedNodes);
   if (deletedNodes) out.deletedNodes = deletedNodes;
-  if (raw.template === "minimal" || raw.template === "standard" || raw.template === "full") out.template = raw.template;
+  if (raw.template === "minimal" || raw.template === "standard" || raw.template === "full" || raw.template === "ai") out.template = raw.template;
   const enabledProxyGroups = stringArray(raw.enabledProxyGroups);
   if (enabledProxyGroups) out.enabledProxyGroups = enabledProxyGroups;
   const hiddenProxyGroups = stringArray(raw.hiddenProxyGroups);

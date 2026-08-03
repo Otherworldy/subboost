@@ -4,6 +4,7 @@ export const BUILTIN_TEMPLATE_IDS: Record<TemplateType, string> = {
   minimal: "builtin-minimal",
   standard: "builtin-standard",
   full: "builtin-full",
+  ai: "builtin-ai",
 };
 
 export type BuiltinTemplateSummaryMetadata = {
@@ -38,6 +39,7 @@ export function builtinIdToType(id: string): TemplateType | null {
   if (id === BUILTIN_TEMPLATE_IDS.minimal) return "minimal";
   if (id === BUILTIN_TEMPLATE_IDS.standard) return "standard";
   if (id === BUILTIN_TEMPLATE_IDS.full) return "full";
+  if (id === BUILTIN_TEMPLATE_IDS.ai) return "ai";
   return null;
 }
 

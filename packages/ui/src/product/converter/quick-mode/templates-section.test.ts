@@ -127,6 +127,7 @@ vi.mock("@subboost/core/templates/builtin", () => ({
     minimal: "builtin-minimal",
     standard: "builtin-standard",
     full: "builtin-full",
+    ai: "builtin-ai",
   },
 }));
 vi.mock("@subboost/ui/product/api-adapter", () => ({
@@ -328,11 +329,13 @@ describe("quick mode TemplatesSection", () => {
       "builtin-minimal",
       "builtin-standard",
       "builtin-full",
+      "builtin-ai",
     ]);
     expect(setters[5]).toHaveBeenCalledWith({
       minimal: { id: "builtin-minimal", engagementCount: 7, isEngaged: true },
       standard: { id: "builtin-standard", engagementCount: 0, isEngaged: false },
       full: { id: "builtin-full", engagementCount: 0, isEngaged: false },
+      ai: { id: "builtin-ai", engagementCount: 0, isEngaged: false },
     });
 
     mocks.captures.rawButtons.find((props: any) => props.title === "Like").onClick();

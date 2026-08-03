@@ -140,7 +140,7 @@ describe("builtin template contracts", () => {
   it("lists and validates preset templates", () => {
     const list = getTemplateList();
 
-    expect(list.map((item) => item.id)).toEqual(["minimal", "standard", "full"]);
+    expect(list.map((item) => item.id)).toEqual(["minimal", "standard", "full", "ai"]);
     expect(list[0]).toMatchObject({
       id: "minimal",
       name: TEMPLATES.minimal.name,

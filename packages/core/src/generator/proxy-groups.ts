@@ -111,7 +111,7 @@ const PROXY_GROUP_ORDER: string[] = [
   // 2. 广告拦截
   "ad",
   // 3. 常用服务
-  "ai", "gemini", "youtube", "google", "microsoft", "apple",
+  "grok", "gpt", "claude", "ai", "gemini", "youtube", "google", "microsoft", "apple",
   // 4. 社交通讯
   "telegram", "twitter", "meta", "discord", "social-other",
   // 5. 流媒体
@@ -542,16 +542,19 @@ export function generateRuleProviders(options: ProxyGroupGenerateOptions): Recor
 /**
  * 根据模板获取启用的模块列表
  */
-export function getModulesForTemplate(template: "minimal" | "standard" | "full"): string[] {
+export function getModulesForTemplate(template: "minimal" | "standard" | "full" | "ai"): string[] {
   switch (template) {
     case "minimal":
       return ["select", "auto", "ad", "private", "cn", "global", "final"];
     case "standard":
       return ["select", "auto", "ad", "private", "cn", "global", "ai", "youtube", "google", "microsoft", "apple", "github", "telegram", "final"];
+    case "ai":
+      // 国内外分流 + AI 独立分组（grok/gemini/gpt/claude）+ 常用服务
+      return ["select", "auto", "ad", "private", "cn", "global", "grok", "gemini", "gpt", "claude", "ai", "youtube", "google", "telegram", "github", "microsoft", "apple", "final"];
     case "full":
     default:
       // 排除默认关闭的模块
-      return PROXY_GROUP_MODULES.filter((m) => m.id !== "adult" && m.id !== "gemini" && m.id !== "google-scholar").map((m) => m.id);
+      return PROXY_GROUP_MODULES.filter((m) => m.id !== "adult" && m.id !== "google-scholar").map((m) => m.id);
   }
 }
 

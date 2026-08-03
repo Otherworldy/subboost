@@ -50,7 +50,7 @@ function normalizeRuleTarget(value: unknown): ProxyGroupRuleTarget | null {
 }
 
 function normalizeTemplate(value: unknown, fallback: TemplateType = "standard"): TemplateType {
-  if (value === "minimal" || value === "standard" || value === "full") return value;
+  if (value === "minimal" || value === "standard" || value === "full" || value === "ai") return value;
   return fallback;
 }
 

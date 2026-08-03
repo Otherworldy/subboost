@@ -403,8 +403,8 @@ export function useEditingSubscriptionLoader({
         })();
 
         const templateFromCfg =
-          cfg.template === "minimal" || cfg.template === "standard" || cfg.template === "full"
-            ? (cfg.template as "minimal" | "standard" | "full")
+          cfg.template === "minimal" || cfg.template === "standard" || cfg.template === "full" || cfg.template === "ai"
+            ? (cfg.template as "minimal" | "standard" | "full" | "ai")
             : "standard";
 
         const enabledGroupsFromCfg = Array.isArray(cfg.enabledGroups) ? (cfg.enabledGroups as string[]) : undefined;
