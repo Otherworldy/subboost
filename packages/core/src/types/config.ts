@@ -69,6 +69,7 @@ export interface DNSConfig {
   "direct-nameserver-follow-policy"?: boolean;
   fallback?: string[];
   "fallback-direct"?: boolean;
+  "fallback-lazy-query"?: boolean;
   "fallback-filter"?: {
     geoip?: boolean;
     "geoip-code"?: string;

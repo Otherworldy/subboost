@@ -1,5 +1,8 @@
+import yaml from "js-yaml";
 import { describe, expect, it } from "vitest";
+import { DEFAULT_DNS_CONFIG } from "../generator/dns";
 import { SUBBOOST_TEMPLATE_CONFIG_SCHEMA } from "../templates/config-template";
+import type { ClashConfig } from "../types/config";
 import {
   DEFAULT_BASE_CONFIG_YAML,
   DEFAULT_SUBBOOST_CONFIG,
@@ -75,6 +78,7 @@ describe("default config builders", () => {
       ruleOrder: [],
       dialerProxyGroups: [],
       proxyGroupNameOverrides: {},
+      dnsYaml: DEFAULT_BASE_CONFIG_YAML,
       mixedPort: DEFAULT_SUBBOOST_CONFIG.mixedPort,
       allowLan: DEFAULT_SUBBOOST_CONFIG.allowLan,
       testUrl: DEFAULT_SUBBOOST_CONFIG.testUrl,
@@ -89,5 +93,6 @@ describe("default config builders", () => {
     expect(DEFAULT_BASE_CONFIG_YAML).toContain(`allow-lan: ${DEFAULT_SUBBOOST_CONFIG.allowLan}`);
     expect(DEFAULT_BASE_CONFIG_YAML).toContain("sniffer:");
     expect(DEFAULT_BASE_CONFIG_YAML).toContain("QUIC: {ports: [443, 8443]}");
+    expect((yaml.load(DEFAULT_BASE_CONFIG_YAML) as ClashConfig).dns).toEqual(DEFAULT_DNS_CONFIG);
   });
 });
