@@ -11,7 +11,7 @@ import { ORIGIN_NAME_KEY, SOURCE_IDS_KEY, getNodeSourceIds } from "./node-source
 
 export const DEFAULT_HEALTH_CHECK = {
   url: "http://cp.cloudflare.com/generate_204",
-  maxDelayMs: 5000,
+  maxDelayMs: 2000,
   // 默认 20 并发：兼顾批量测速速度；触发节点服务器限流时由失败重试兜底。
   concurrency: 20,
 } as const;

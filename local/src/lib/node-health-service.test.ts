@@ -46,7 +46,7 @@ describe("runNodeHealthChecks", () => {
     );
     expect(mocks.runMihomoHealthCheck).toHaveBeenCalledWith(
       expect.objectContaining({
-        config: expect.objectContaining({ url: "http://cp.cloudflare.com/generate_204", maxDelayMs: 5000, concurrency: 20 }),
+        config: expect.objectContaining({ url: "http://cp.cloudflare.com/generate_204", maxDelayMs: 2000, concurrency: 20 }),
       })
     );
     expect(result.summary).toEqual({ tested: 3, ok: 3, fail: 0, unsupported: 0 });

@@ -38,7 +38,7 @@ latest latency for every node stays visible in Node Management.
   in the shared action bar; manual checks ignore the auto toggle.
 - The advanced source editor configures the test URL, max latency
   (100–60000 ms), and concurrency (1–100). Defaults: `https://www.google.com/`,
-  5000 ms, 20; older configs keep health checks disabled.
+  2000 ms, 20; older configs keep health checks disabled.
 - Node Management shows the latest result per node: fastest latency, failed, or
   unsupported, with the measurement time on hover.
 - Production images bundle the official mihomo kernel at a pinned version

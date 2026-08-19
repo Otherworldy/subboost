@@ -9,7 +9,7 @@
 ## Approach
 
 - 沿用现有订阅源配置、刷新快照和生成链路，不新增独立任务系统。
-- 为每个可刷新源保存“自动测活开关 + 可选高级覆盖”，旧配置默认关闭；所有 `url`、`yaml`、`nodes` 源都支持，`proxy-providers` 模式因节点不进入 SubBoost 而禁用。默认 URL 为 `https://www.google.com/`（UI 接受并规范化用户给出的 `www.google.com`），最高延迟 `5000ms`，并发 `20`。
+- 为每个可刷新源保存“自动测活开关 + 可选高级覆盖”，旧配置默认关闭；所有 `url`、`yaml`、`nodes` 源都支持，`proxy-providers` 模式因节点不进入 SubBoost 而禁用。默认 URL 为 `https://www.google.com/`（UI 接受并规范化用户给出的 `www.google.com`），最高延迟 `2000ms`，并发 `20`。
 - 在本地服务中提供单一 mihomo 适配层：为一次测活生成最小临时配置，复用现有 `sanitizeMihomoProxyNode`，启动仅监听 Unix socket 的 mihomo 子进程，通过 `/proxies/{name}/delay` 批量测试，结束后关闭进程并清理临时目录。Unix socket 避免端口竞争和控制 API 暴露；同一服务进程内的测活任务串行排队，单个任务内部按设置并发。
 - 测活结果按 `sourceId` 附着在节点内部元数据中，记录 `status`、`delayMs`、`checkedAt`；同一节点多来源时，任一未启用自动测活的来源或任一成功来源均可使节点对下游可见。`direct`、`dns`、`relay` 及 mihomo 不支持的节点记录为“不支持”。
 - 自动测活在开启后保存订阅时立即运行，并在以后每次手动刷新和 cron 刷新时运行。创建时若 mihomo 系统性失败则不创建记录，更新时失败则不修改旧记录；成功保存响应复用订阅详情序列化并带回含测活元数据的节点，使当前编辑页面无需二次拉取即可展示结果。手动测活不受自动开关限制：源按钮测该源，节点按钮测该节点所属的全部源，整体按钮测当前配置全部源。
