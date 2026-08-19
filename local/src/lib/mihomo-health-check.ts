@@ -32,7 +32,10 @@ export class MihomoHealthCheckError extends Error {
 const INTERNAL_UNSUPPORTED_TYPES = new Set(["direct", "dns", "relay"]);
 const STARTUP_TIMEOUT_MS = 10_000;
 const REQUEST_GRACE_MS = 2_000;
-const OVERALL_TIMEOUT_MS = 10 * 60_000;
+// 单次测活整体上限：并发 20、每节点最坏 ~4s（2s 延迟上限 + 2s 宽限 + 重试），
+// 数千节点全超时也只需 1-2 分钟，3 分钟足够；过长会让 cron 长时间占队、
+// 并导致 interactive 排队超时（60s）拿不到结果。
+const OVERALL_TIMEOUT_MS = 3 * 60_000;
 const STOP_GRACE_MS = 3_000;
 // 失败节点重试前的退避：批量测速时大量并发建连容易触发节点服务器限流/排队，
 // 退避后重试一次可吸收这类瞬时失败（单节点测速不受影响）。
@@ -456,7 +459,8 @@ export async function executeHealthCheck(
     }
     if (!startedAny) throw error;
   } finally {
-    clearTimeout(deadlineTimer);
+    // 不取消 deadlineTimer：abort 幂等，整体超时后触发一次无副作用；
+    // 提前 clearTimeout 会在“整体超时”与“任务收尾”竞态时吞掉超时信号
     await deps.rmImpl(tempDir).catch(() => undefined);
   }
 
