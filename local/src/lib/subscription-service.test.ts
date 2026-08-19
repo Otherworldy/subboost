@@ -282,7 +282,8 @@ describe("local subscription service", () => {
 
     expect(mocks.runMihomoHealthCheck).toHaveBeenCalledTimes(1);
     expect(mocks.runMihomoHealthCheck).toHaveBeenCalledWith(
-      expect.objectContaining({ config: expect.objectContaining({ enabled: true, maxDelayMs: 1500 }) })
+      expect.objectContaining({ config: expect.objectContaining({ enabled: true, maxDelayMs: 1500 }) }),
+      "interactive"
     );
     expect(mocks.prisma.subscription.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -349,7 +350,8 @@ describe("local subscription service", () => {
     // 已有结果也重新探测，不使用过期结果
     expect(mocks.runMihomoHealthCheck).toHaveBeenCalledTimes(1);
     expect(mocks.runMihomoHealthCheck).toHaveBeenCalledWith(
-      expect.objectContaining({ nodes: [expect.objectContaining({ name: "Cached" })] })
+      expect.objectContaining({ nodes: [expect.objectContaining({ name: "Cached" })] }),
+      "interactive"
     );
     expect(mocks.prisma.subscription.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -377,7 +379,8 @@ describe("local subscription service", () => {
 
     expect(mocks.runMihomoHealthCheck).toHaveBeenCalledTimes(1);
     expect(mocks.runMihomoHealthCheck).toHaveBeenCalledWith(
-      expect.objectContaining({ nodes: [expect.objectContaining({ name: "Cached" })] })
+      expect.objectContaining({ nodes: [expect.objectContaining({ name: "Cached" })] }),
+      "interactive"
     );
 
     mocks.runMihomoHealthCheck.mockClear();
@@ -391,7 +394,8 @@ describe("local subscription service", () => {
       nodes: [{ ...cachedNode, server: "changed.example.com" }],
     });
     expect(mocks.runMihomoHealthCheck).toHaveBeenCalledWith(
-      expect.objectContaining({ nodes: [expect.objectContaining({ server: "changed.example.com" })] })
+      expect.objectContaining({ nodes: [expect.objectContaining({ server: "changed.example.com" })] }),
+      "interactive"
     );
 
     mocks.runMihomoHealthCheck.mockClear();
@@ -408,7 +412,8 @@ describe("local subscription service", () => {
     // 重新开启自动测活后同样立即重新探测
     expect(mocks.runMihomoHealthCheck).toHaveBeenCalledTimes(1);
     expect(mocks.runMihomoHealthCheck).toHaveBeenCalledWith(
-      expect.objectContaining({ nodes: [expect.objectContaining({ name: "Cached" })] })
+      expect.objectContaining({ nodes: [expect.objectContaining({ name: "Cached" })] }),
+      "interactive"
     );
   });
 

@@ -354,14 +354,16 @@ async function probeGroup(group: ProbeGroupEntry[], context: ProbeContext, deps:
   }
 }
 
+type RunningDeps = Required<
+  Pick<
+    MihomoHealthCheckDeps,
+    "spawnImpl" | "requestImpl" | "statImpl" | "delayImpl" | "mkdtempImpl" | "writeFileImpl" | "rmImpl"
+  >
+>;
+
 export async function executeHealthCheck(
   params: MihomoHealthCheckParams,
-  deps: Required<
-    Pick<
-      MihomoHealthCheckDeps,
-      "spawnImpl" | "requestImpl" | "statImpl" | "delayImpl" | "mkdtempImpl" | "writeFileImpl" | "rmImpl"
-    >
-  >
+  deps: RunningDeps
 ): Promise<Map<string, NodeHealthResult>> {
   const { nodes, config } = params;
   const checkedAt = new Date().toISOString();
@@ -461,9 +463,7 @@ export async function executeHealthCheck(
   return results;
 }
 
-const defaultDeps: Required<
-  Pick<MihomoHealthCheckDeps, "spawnImpl" | "requestImpl" | "statImpl" | "delayImpl" | "mkdtempImpl" | "writeFileImpl" | "rmImpl">
-> = {
+const defaultDeps: RunningDeps = {
   spawnImpl: spawn,
   requestImpl: requestUnixSocket,
   statImpl: (path) => stat(path),
@@ -473,14 +473,45 @@ const defaultDeps: Required<
   rmImpl: (path) => rm(path, { recursive: true, force: true }),
 };
 
-// 进程级串行队列：同一服务进程内同一时刻只跑一个 mihomo 实例
+// 进程级串行队列：同一服务进程内同一时刻只跑一个 mihomo 实例。
+// 拆两条队列互不阻塞：background 给定时/自动刷新（cron），interactive 给用户在线等待的
+// 手动测活、保存订阅与手动刷新；interactive 排队超过上限直接明确失败并取消执行，
+// 避免用户被后台批处理无限期阻塞且无任何反馈。
 let mihomoQueue: Promise<unknown> = Promise.resolve();
+let interactiveQueue: Promise<unknown> = Promise.resolve();
+
+const QUEUE_WAIT_TIMEOUT_MS = 60_000;
+const QUEUE_TIMEOUT_MESSAGE = "排队超时：当前有其他测活任务正在进行，请稍后重试";
+
+export type MihomoHealthCheckQueue = "interactive" | "background";
 
 export function runMihomoHealthCheck(
-  params: MihomoHealthCheckParams
+  params: MihomoHealthCheckParams,
+  queue: MihomoHealthCheckQueue = "background",
+  options: { deps?: RunningDeps; queueWaitMs?: number } = {}
 ): Promise<Map<string, NodeHealthResult>> {
-  const run = () => executeHealthCheck(params, defaultDeps);
-  const result = mihomoQueue.then(run, run);
-  mihomoQueue = result.catch(() => undefined);
-  return result;
+  const run = () => executeHealthCheck(params, options.deps ?? defaultDeps);
+  if (queue === "interactive") {
+    // 超时后标记取消：队列释放时不再执行，避免任务白跑且向已关闭的流回写结果
+    const controller = new AbortController();
+    const queued = interactiveQueue.then(
+      () => {
+        if (controller.signal.aborted) throw new MihomoHealthCheckError(QUEUE_TIMEOUT_MESSAGE);
+        return run();
+      },
+      () => {
+        if (controller.signal.aborted) throw new MihomoHealthCheckError(QUEUE_TIMEOUT_MESSAGE);
+        return run();
+      }
+    );
+    interactiveQueue = queued.catch(() => undefined);
+    const timeout = delay(options.queueWaitMs ?? QUEUE_WAIT_TIMEOUT_MS).then(() => {
+      controller.abort();
+      throw new MihomoHealthCheckError(QUEUE_TIMEOUT_MESSAGE);
+    });
+    return Promise.race([queued, timeout]);
+  }
+  const queued = mihomoQueue.then(run, run);
+  mihomoQueue = queued.catch(() => undefined);
+  return queued;
 }

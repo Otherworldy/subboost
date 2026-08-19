@@ -8,6 +8,7 @@ import {
   executeHealthCheck,
   MihomoHealthCheckError,
   resolveMihomoBinaryPath,
+  runMihomoHealthCheck,
   type MihomoHealthCheckDeps,
   type MihomoRequestResult,
 } from "./mihomo-health-check";
@@ -489,5 +490,46 @@ describe("health result shape", () => {
     for (const result of results.values()) {
       expect(typeof (result as NodeHealthResult).checkedAt).toBe("string");
     }
+  });
+});
+
+describe("runMihomoHealthCheck 队列", () => {
+  it("interactive 排队超时明确失败，且队列释放后不再执行", async () => {
+    const hold = makeDeps({ requestImpl: async (_s, _m, path) => ({ status: path.startsWith("/version") ? 200 : 404, body: "" }) });
+    let release: () => void = () => undefined;
+    hold.statImpl.mockReturnValueOnce(new Promise<undefined>((resolve) => {
+      release = () => resolve(undefined);
+    }));
+    const first = runMihomoHealthCheck({ nodes: [vmess("A")], config: CONFIG }, "interactive", {
+      deps: hold.deps,
+    });
+    const second = runMihomoHealthCheck({ nodes: [vmess("B")], config: CONFIG }, "interactive", {
+      queueWaitMs: 30,
+    });
+    try {
+      await expect(second).rejects.toThrow("排队超时：当前有其他测活任务正在进行，请稍后重试");
+      expect(hold.spawnImpl).not.toHaveBeenCalled();
+      release();
+      const results = await first;
+      expect(results.get("A")?.status).toBe("unsupported");
+      // 队列释放后，超时任务不再补跑
+      expect(hold.spawnImpl).toHaveBeenCalledTimes(1);
+    } finally {
+      release();
+      await first.catch(() => undefined);
+    }
+  });
+
+  it("interactive 队列不被 background 任务阻塞", async () => {
+    const hold = makeDeps();
+    hold.statImpl.mockReturnValueOnce(new Promise<undefined>(() => undefined));
+    const background = runMihomoHealthCheck({ nodes: [vmess("A")], config: CONFIG }, "background", {
+      deps: hold.deps,
+    });
+    // 空节点立即完成：不用等 background 释放队列
+    await expect(
+      runMihomoHealthCheck({ nodes: [], config: CONFIG }, "interactive", { queueWaitMs: 30 })
+    ).resolves.toEqual(new Map());
+    background.catch(() => undefined);
   });
 });

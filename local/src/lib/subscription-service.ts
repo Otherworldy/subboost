@@ -37,7 +37,7 @@ import { decryptJson, decryptJsonObject, encryptJson } from "./crypto";
 import { getAppUrl } from "./env";
 import { prisma } from "./prisma";
 import { fetchSourceUserInfoHeadersDirect, importSourceUrlDirect } from "./source-import";
-import { runMihomoHealthCheck } from "./mihomo-health-check";
+import { runMihomoHealthCheck, type MihomoHealthCheckQueue } from "./mihomo-health-check";
 import { normalizeLocalAutoUpdateIntervalSeconds } from "./auto-update-policy";
 
 export const MAX_NODES_PER_SUBSCRIPTION = 10000;
@@ -569,7 +569,7 @@ export async function deleteSubscription(ownerId: string, id: string): Promise<b
   return true;
 }
 
-export function buildSubscriptionFetchCallbacks() {
+export function buildSubscriptionFetchCallbacks(queue: MihomoHealthCheckQueue = "background") {
   return {
     fetchUrlNodes: async (source: SavedSource) => {
       const imported = await importSourceUrlDirect({
@@ -606,11 +606,14 @@ export function buildSubscriptionFetchCallbacks() {
       nodes: ParsedNode[];
       onResult?: (nodeName: string, result: NodeHealthResult) => void;
     }) => {
-      return runMihomoHealthCheck({
-        nodes,
-        config: resolveSourceHealthCheck(source),
-        ...(onResult ? { onResult } : {}),
-      });
+      return runMihomoHealthCheck(
+        {
+          nodes,
+          config: resolveSourceHealthCheck(source),
+          ...(onResult ? { onResult } : {}),
+        },
+        queue
+      );
     },
   };
 }
@@ -639,18 +642,21 @@ async function runSubscriptionHealthChecks(
     if (!config.enabled) continue;
     const sourceNodes = next.filter((node) => getNodeSourceIds(node).includes(source.id));
     if (sourceNodes.length === 0) continue;
-    const results = await runMihomoHealthCheck({
-      nodes: sourceNodes,
-      config,
-      ...(onProgress
-        ? {
-            onResult: () => {
-              tested += 1;
-              onProgress(tested, total);
-            },
-          }
-        : {}),
-    });
+    const results = await runMihomoHealthCheck(
+      {
+        nodes: sourceNodes,
+        config,
+        ...(onProgress
+          ? {
+              onResult: () => {
+                tested += 1;
+                onProgress(tested, total);
+              },
+            }
+          : {}),
+      },
+      "interactive"
+    );
     next = applyNodeHealthResults(next, source.id, results);
   }
   return next;
@@ -710,7 +716,7 @@ export async function refreshSubscription(
     config: secrets.config,
     urls: secrets.urls,
     storedNodes: secrets.nodes,
-    ...buildSubscriptionFetchCallbacks(),
+    ...buildSubscriptionFetchCallbacks("interactive"),
     ...(onProgress ? { onHealthProgress: onProgress } : {}),
   });
   const refreshResult = prepareRefreshCacheResult({

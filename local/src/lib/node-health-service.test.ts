@@ -42,12 +42,14 @@ describe("runNodeHealthChecks", () => {
     expect(mocks.runMihomoHealthCheck).toHaveBeenCalledWith(
       expect.objectContaining({
         config: expect.objectContaining({ enabled: true, maxDelayMs: 1500 }),
-      })
+      }),
+      "interactive"
     );
     expect(mocks.runMihomoHealthCheck).toHaveBeenCalledWith(
       expect.objectContaining({
         config: expect.objectContaining({ url: "http://cp.cloudflare.com/generate_204", maxDelayMs: 2000, concurrency: 20 }),
-      })
+      }),
+      "interactive"
     );
     expect(result.summary).toEqual({ tested: 3, ok: 3, fail: 0, unsupported: 0 });
     const byName = new Map(result.nodes.map((item) => [item.name, item.health]));

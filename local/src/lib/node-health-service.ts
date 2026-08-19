@@ -113,11 +113,14 @@ export async function runNodeHealthChecks(params: {
     for (const sourceNode of sourceNodes) probedNodeNames.add(sourceNode.name);
 
     const onNodeResult = params.onNodeResult;
-    const results = await runMihomoHealthCheck({
-      nodes: sourceNodes,
-      config: resolveSourceHealthCheck(source),
-      ...(onNodeResult ? { onResult: (nodeName, result) => onNodeResult(nodeName, sourceId, result) } : {}),
-    });
+    const results = await runMihomoHealthCheck(
+      {
+        nodes: sourceNodes,
+        config: resolveSourceHealthCheck(source),
+        ...(onNodeResult ? { onResult: (nodeName, result) => onNodeResult(nodeName, sourceId, result) } : {}),
+      },
+      "interactive"
+    );
     currentNodes = applyNodeHealthResults(currentNodes, sourceId, results);
   }
 
