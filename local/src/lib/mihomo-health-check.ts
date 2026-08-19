@@ -459,8 +459,10 @@ export async function executeHealthCheck(
     }
     if (!startedAny) throw error;
   } finally {
-    // 不取消 deadlineTimer：abort 幂等，整体超时后触发一次无副作用；
-    // 提前 clearTimeout 会在“整体超时”与“任务收尾”竞态时吞掉超时信号
+    // 到达整体 deadline 时即使 probeGroup 已收尾也要 abort，避免收尾先于 timer
+    // 回调时吞掉超时信号；未超时的调用则及时释放 timer。
+    if (remainingMs(context) <= 0) abortController.abort();
+    clearTimeout(deadlineTimer);
     await deps.rmImpl(tempDir).catch(() => undefined);
   }
 
@@ -496,24 +498,30 @@ export function runMihomoHealthCheck(
 ): Promise<Map<string, NodeHealthResult>> {
   const run = () => executeHealthCheck(params, options.deps ?? defaultDeps);
   if (queue === "interactive") {
-    // 超时后标记取消：队列释放时不再执行，避免任务白跑且向已关闭的流回写结果
+    // 超时后标记取消：队列释放时不再执行，避免任务白跑且向已关闭的流回写结果。
+    // 仅限制排队时间；已经拿到队列槽位的测活可正常运行至整体 deadline。
     const controller = new AbortController();
+    let queueTimeout: ReturnType<typeof setTimeout> | undefined;
     const queued = interactiveQueue.then(
       () => {
+        if (queueTimeout) clearTimeout(queueTimeout);
         if (controller.signal.aborted) throw new MihomoHealthCheckError(QUEUE_TIMEOUT_MESSAGE);
         return run();
       },
       () => {
+        if (queueTimeout) clearTimeout(queueTimeout);
         if (controller.signal.aborted) throw new MihomoHealthCheckError(QUEUE_TIMEOUT_MESSAGE);
         return run();
       }
     );
     interactiveQueue = queued.catch(() => undefined);
-    const timeout = delay(options.queueWaitMs ?? QUEUE_WAIT_TIMEOUT_MS).then(() => {
-      controller.abort();
-      throw new MihomoHealthCheckError(QUEUE_TIMEOUT_MESSAGE);
+    return new Promise((resolve, reject) => {
+      queueTimeout = setTimeout(() => {
+        controller.abort();
+        reject(new MihomoHealthCheckError(QUEUE_TIMEOUT_MESSAGE));
+      }, options.queueWaitMs ?? QUEUE_WAIT_TIMEOUT_MS);
+      queued.then(resolve, reject);
     });
-    return Promise.race([queued, timeout]);
   }
   const queued = mihomoQueue.then(run, run);
   mihomoQueue = queued.catch(() => undefined);

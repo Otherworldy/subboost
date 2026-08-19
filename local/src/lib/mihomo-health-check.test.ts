@@ -520,16 +520,38 @@ describe("runMihomoHealthCheck 队列", () => {
     }
   });
 
+  it("interactive 已开始执行后不受排队超时影响", async () => {
+    const hold = makeDeps({ requestImpl: async (_s, _m, path) => ({ status: path.startsWith("/version") ? 200 : 404, body: "" }) });
+    let release: () => void = () => undefined;
+    hold.statImpl.mockReturnValueOnce(new Promise<undefined>((resolve) => {
+      release = () => resolve(undefined);
+    }));
+    const running = runMihomoHealthCheck({ nodes: [vmess("A")], config: CONFIG }, "interactive", {
+      deps: hold.deps,
+      queueWaitMs: 20,
+    });
+    await vi.waitFor(() => expect(hold.statImpl).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    release();
+    await expect(running).resolves.toEqual(expect.any(Map));
+  });
+
   it("interactive 队列不被 background 任务阻塞", async () => {
     const hold = makeDeps();
     hold.statImpl.mockReturnValueOnce(new Promise<undefined>(() => undefined));
     const background = runMihomoHealthCheck({ nodes: [vmess("A")], config: CONFIG }, "background", {
       deps: hold.deps,
     });
-    // 空节点立即完成：不用等 background 释放队列
+    const interactive = makeDeps({
+      requestImpl: async (_s, _m, path) => ({ status: path.startsWith("/version") ? 200 : 404, body: "" }),
+    });
     await expect(
-      runMihomoHealthCheck({ nodes: [], config: CONFIG }, "interactive", { queueWaitMs: 30 })
-    ).resolves.toEqual(new Map());
+      runMihomoHealthCheck({ nodes: [vmess("B")], config: CONFIG }, "interactive", {
+        deps: interactive.deps,
+        queueWaitMs: 30,
+      })
+    ).resolves.toEqual(expect.any(Map));
+    expect(interactive.spawnImpl).toHaveBeenCalledTimes(1);
     background.catch(() => undefined);
   });
 });
