@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getCurrentAdmin: vi.fn(),
   runNodeHealthChecks: vi.fn(),
+  getSubscriptionUpdatedAt: vi.fn(),
   persistNodeHealthResults: vi.fn(),
 }));
 
@@ -23,6 +24,7 @@ vi.mock("@local/lib/node-health-service", () => ({
 }));
 
 vi.mock("@local/lib/subscription-service", () => ({
+  getSubscriptionUpdatedAt: mocks.getSubscriptionUpdatedAt,
   persistNodeHealthResults: mocks.persistNodeHealthResults,
 }));
 
@@ -60,6 +62,7 @@ describe("local node health route", () => {
         summary: { tested: 1, ok: 1, fail: 0, unsupported: 0 },
       };
     });
+    mocks.getSubscriptionUpdatedAt.mockResolvedValue(new Date("2026-06-01T04:00:00.000Z"));
     mocks.persistNodeHealthResults.mockResolvedValue(true);
   });
 
@@ -106,15 +109,30 @@ describe("local node health route", () => {
     ]);
   });
 
+  it("rejects a missing edited subscription before starting a health check", async () => {
+    mocks.getSubscriptionUpdatedAt.mockResolvedValueOnce(null);
+
+    await expect(
+      readJson(await POST(request({ scope: { kind: "all" }, nodes: [], sources: [], subscriptionId: "sub-gone" })))
+    ).resolves.toEqual({
+      status: 404,
+      body: { error: "Subscription not found.", code: "NOT_FOUND" },
+    });
+    expect(mocks.runNodeHealthChecks).not.toHaveBeenCalled();
+  });
+
   it("persists results to the edited subscription when subscriptionId is provided", async () => {
     const response = await readNdjson(
       await POST(request({ scope: { kind: "all" }, nodes: [], sources: [], subscriptionId: "sub-9" }))
     );
 
     expect(response.lines[response.lines.length - 1]).toMatchObject({ type: "done" });
-    expect(mocks.persistNodeHealthResults).toHaveBeenCalledWith("admin-1", "sub-9", [
-      { name: "A", health: { s1: { status: "ok", delayMs: 10, checkedAt: "t" } } },
-    ]);
+    expect(mocks.persistNodeHealthResults).toHaveBeenCalledWith(
+      "admin-1",
+      "sub-9",
+      new Date("2026-06-01T04:00:00.000Z"),
+      [{ name: "A", health: { s1: { status: "ok", delayMs: 10, checkedAt: "t" } } }]
+    );
   });
 
   it("reports when the edited subscription no longer exists", async () => {

@@ -2,7 +2,7 @@
  * Clash YAML 配置解析器
  */
 
-import yaml from "js-yaml";
+import { load } from "js-yaml";
 import type { ParsedNode, ParseResult, UnknownNodeType, XHttpOpts } from "@subboost/core/types/node";
 import { normalizeRealityShortId } from "@subboost/core/mihomo/reality";
 import { canonicalizeParsedNode } from "./canonical-fields";
@@ -160,10 +160,19 @@ export function parseClashYaml(content: string): ParseResult {
   const nodes: ParsedNode[] = [];
   const errors: string[] = [];
 
+  if (!content.trim()) {
+    return {
+      nodes,
+      errors: ["空的配置文件"],
+      totalParsed: 0,
+      totalFailed: 1,
+    };
+  }
+
   try {
     const normalizeTabs = (s: string) => s.replace(/\t/g, "  ");
 
-    const tryLoad = (raw: string): unknown => yaml.load(raw) as unknown;
+    const tryLoad = (raw: string): unknown => load(raw) as unknown;
     const normalizedContent = normalizeClashYamlScalarText(normalizeTabs(content));
 
     let parsed: unknown;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import yamlParser from "js-yaml";
+import * as yamlParser from "js-yaml";
 import { collectDnsPolicyEntries, configToYaml } from "./yaml";
 import type { ClashConfig } from "@subboost/core/types/config";
 

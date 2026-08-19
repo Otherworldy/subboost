@@ -1,4 +1,4 @@
-import yaml from "js-yaml";
+import * as yaml from "js-yaml";
 import type { GroupListenerBinding, GroupListenerTarget } from "@subboost/core/types/config";
 
 /** 分组监听端口冲突检查所需的最小状态切片 */

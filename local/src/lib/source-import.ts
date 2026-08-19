@@ -108,9 +108,7 @@ async function validatePublicFetchTarget(
 
   const records = await lookup(hostname, { all: true, verbatim: true }).catch(() => null);
   if (!records || records.length === 0) {
-    // Compatibility fallback documented for local: if DNS validation cannot
-    // obtain any address, let the runtime resolver make the connection.
-    return { ok: true, addresses: null };
+    return { ok: false, failure: toFailure("无法解析订阅域名，请稍后重试") };
   }
   const addresses = normalizeResolvedIpAddresses(records.map((record) => record.address));
   const finalAddresses = shouldRecheckFakeIpDnsAnswers(addresses)

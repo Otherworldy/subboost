@@ -792,9 +792,15 @@ export function computeNodeHealthStats(nodes: ParsedNode[]): {
  * 仅按节点名匹配、只覆盖本次测活涉及的来源条目，其余内容不动。
  * 订阅不存在或不属于该管理员时返回 false。
  */
+export async function getSubscriptionUpdatedAt(ownerId: string, id: string): Promise<Date | null> {
+  const row = await prisma.subscription.findFirst({ where: { id, ownerId }, select: { updatedAt: true } });
+  return row?.updatedAt ?? null;
+}
+
 export async function persistNodeHealthResults(
   ownerId: string,
   id: string,
+  expectedUpdatedAt: Date,
   results: Array<{ name: string; health: Record<string, NodeHealthResult> }>
 ): Promise<boolean> {
   const row = await prisma.subscription.findFirst({ where: { id, ownerId } });
@@ -809,13 +815,21 @@ export async function persistNodeHealthResults(
     return { ...record, [HEALTH_RESULTS_KEY]: { ...existing, ...health } } as unknown as ParsedNode;
   });
   const changed = nextNodes.some((node, index) => node !== secrets.nodes[index]);
-  if (changed) {
-    await prisma.subscription.update({
-      where: { id: row.id },
-      data: { encryptedNodes: encryptJson(nextNodes) },
-    });
-  }
-  return true;
+  if (!changed) return true;
+
+  const updated = await prisma.subscription.updateMany({
+    where: { id: row.id, ownerId, updatedAt: expectedUpdatedAt },
+    data: { encryptedNodes: encryptJson(nextNodes), updatedAt: new Date() },
+  });
+  return updated.count === 1;
+}
+
+async function recordSubscriptionAccess(subscriptionId: string, accessedAt: Date): Promise<void> {
+  await prisma.$executeRaw`
+    UPDATE "Subscription"
+    SET "lastAccessedAt" = ${accessedAt}
+    WHERE "id" = ${subscriptionId}
+  `;
 }
 
 export async function generateSubscriptionYaml(token: string): Promise<GeneratedSubscriptionYaml | null> {
@@ -831,7 +845,7 @@ export async function generateSubscriptionYaml(token: string): Promise<Generated
     proxyProviders,
   });
   const yaml = generateClashYaml(options);
-  await prisma.subscription.update({ where: { id: row.id }, data: { lastAccessedAt: new Date() } });
+  await recordSubscriptionAccess(row.id, new Date());
   return {
     yaml,
     name: row.name,

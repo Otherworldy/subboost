@@ -42,6 +42,7 @@ const mocks = vi.hoisted(() => ({
     },
     subscriptionAutoUpdateState: { upsert: vi.fn() },
     $transaction: vi.fn(),
+    $executeRaw: vi.fn(),
   },
 }));
 
@@ -177,6 +178,7 @@ describe("local subscription service", () => {
     mocks.prisma.subscription.update.mockResolvedValue(row({ name: "Updated" }));
     mocks.prisma.subscription.updateMany.mockResolvedValue({ count: 1 });
     mocks.prisma.subscriptionAutoUpdateState.upsert.mockResolvedValue({});
+    mocks.prisma.$executeRaw.mockResolvedValue(1);
     mocks.prisma.subscription.delete.mockResolvedValue(row());
     mocks.prisma.$transaction.mockImplementation(async (callback) => callback({
       subscription: {
@@ -846,10 +848,7 @@ describe("local subscription service", () => {
       expect.objectContaining({ sources: expect.any(Array) }),
       expect.objectContaining({ nodes: [expect.objectContaining({ name: "Node" })], proxyProviders: null })
     );
-    expect(mocks.prisma.subscription.update).toHaveBeenCalledWith({
-      where: { id: "sub-1" },
-      data: { lastAccessedAt: expect.any(Date) },
-    });
+    expect(mocks.prisma.$executeRaw).toHaveBeenCalled();
 
     mocks.prisma.subscription.findUnique.mockResolvedValueOnce(null);
     await expect(generateSubscriptionYaml("missing")).resolves.toBeNull();
@@ -880,18 +879,25 @@ describe("local subscription service", () => {
         ]),
       })
     );
-    mocks.prisma.subscription.update.mockResolvedValueOnce(row());
-
-    const persisted = await persistNodeHealthResults("owner-1", "sub-1", [
-      { name: "Node", health: { s1: { status: "fail", checkedAt: "t1" } } },
-      { name: "Ghost", health: { s1: { status: "ok", delayMs: 5, checkedAt: "t2" } } },
-    ]);
+    const persisted = await persistNodeHealthResults(
+      "owner-1",
+      "sub-1",
+      row().updatedAt,
+      [
+        { name: "Node", health: { s1: { status: "fail", checkedAt: "t1" } } },
+        { name: "Ghost", health: { s1: { status: "ok", delayMs: 5, checkedAt: "t2" } } },
+      ]
+    );
 
     expect(persisted).toBe(true);
-    const saved = JSON.parse((mocks.prisma.subscription.update.mock.calls[0][0] as { data: { encryptedNodes: string } }).data.encryptedNodes);
+    const saved = JSON.parse((mocks.prisma.subscription.updateMany.mock.calls[0][0] as { data: { encryptedNodes: string } }).data.encryptedNodes);
     // 匹配节点合并结果；未匹配节点不受影响
     expect(saved[0]._health).toEqual({ s1: { status: "fail", checkedAt: "t1" } });
     expect(saved[1]).not.toHaveProperty("_health");
+    expect(mocks.prisma.subscription.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: "sub-1", ownerId: "owner-1", updatedAt: row().updatedAt },
+      data: expect.objectContaining({ updatedAt: expect.any(Date) }),
+    }));
   });
 
   it("keeps existing health entries from other sources when persisting", async () => {
@@ -902,22 +908,32 @@ describe("local subscription service", () => {
         ]),
       })
     );
-    mocks.prisma.subscription.update.mockResolvedValueOnce(row());
-
-    await persistNodeHealthResults("owner-1", "sub-1", [
+    await persistNodeHealthResults("owner-1", "sub-1", row().updatedAt, [
       { name: "Node", health: { s1: { status: "fail", checkedAt: "t1" } } },
     ]);
 
-    const saved = JSON.parse((mocks.prisma.subscription.update.mock.calls[0][0] as { data: { encryptedNodes: string } }).data.encryptedNodes);
+    const saved = JSON.parse((mocks.prisma.subscription.updateMany.mock.calls[0][0] as { data: { encryptedNodes: string } }).data.encryptedNodes);
     expect(saved[0]._health).toEqual({
       s2: { status: "ok", delayMs: 3, checkedAt: "old" },
       s1: { status: "fail", checkedAt: "t1" },
     });
   });
 
+  it("does not overwrite nodes when the subscription changed during the health check", async () => {
+    mocks.prisma.subscription.updateMany.mockResolvedValueOnce({ count: 0 });
+
+    await expect(
+      persistNodeHealthResults("owner-1", "sub-1", row().updatedAt, [
+        { name: "Node", health: { s1: { status: "ok", delayMs: 5, checkedAt: "t1" } } },
+      ])
+    ).resolves.toBe(false);
+  });
+
   it("skips persistence when the subscription does not belong to the admin", async () => {
     mocks.prisma.subscription.findFirst.mockResolvedValueOnce(null);
-    await expect(persistNodeHealthResults("owner-1", "sub-missing", [{ name: "A", health: {} }])).resolves.toBe(false);
+    await expect(
+      persistNodeHealthResults("owner-1", "sub-missing", row().updatedAt, [{ name: "A", health: {} }])
+    ).resolves.toBe(false);
     expect(mocks.prisma.subscription.update).not.toHaveBeenCalled();
   });
 });

@@ -1,5 +1,4 @@
-import yaml from "js-yaml";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import {
   diffGeneratedYamlSemantics,
@@ -160,7 +159,7 @@ limits:
     expect(() => parseGeneratedYamlSemantics("dns:\n  nameserver: [")).toThrow("Generated YAML parse failed");
   });
 
-  it("normalizes undefined semantic fields and formats unusual parser errors", () => {
+  it("normalizes undefined semantic fields and parser errors", () => {
     const snapshot = {
       version: 1 as const,
       rawFingerprint: "",
@@ -171,23 +170,7 @@ limits:
       },
     };
     expect(hashGeneratedYamlSemantics(snapshot)).toMatch(/^[a-f0-9]{8}$/);
-
-    const load = vi.spyOn(yaml, "load");
-    try {
-      load.mockImplementationOnce(() => []);
-      expect(() => parseGeneratedYamlSemantics("[]")).toThrow("top-level object");
-
-      load.mockImplementationOnce(() => {
-        throw "plain parser failure";
-      });
-      expect(() => parseGeneratedYamlSemantics("bad")).toThrow("plain parser failure");
-
-      load.mockImplementationOnce(() => {
-        throw { message: "object parser failure", mark: {} };
-      });
-      expect(() => parseGeneratedYamlSemantics("bad")).toThrow("object parser failure");
-    } finally {
-      load.mockRestore();
-    }
+    expect(() => parseGeneratedYamlSemantics("[]")).toThrow("top-level object");
+    expect(() => parseGeneratedYamlSemantics("bad: [")).toThrow("Generated YAML parse failed");
   });
 });

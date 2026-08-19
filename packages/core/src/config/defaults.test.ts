@@ -1,4 +1,4 @@
-import yaml from "js-yaml";
+import * as yaml from "js-yaml";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_DNS_CONFIG } from "../generator/dns";
 import { SUBBOOST_TEMPLATE_CONFIG_SCHEMA } from "../templates/config-template";

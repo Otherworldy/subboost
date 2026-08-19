@@ -1,7 +1,10 @@
 import { withCurrentAdmin } from "@local/lib/api-auth";
 import { apiError, jsonBodyError, LOCAL_JSON_BODY_LIMITS, readJsonBody } from "@local/lib/http";
 import { runNodeHealthChecks, type NodeHealthCheckScope } from "@local/lib/node-health-service";
-import { persistNodeHealthResults } from "@local/lib/subscription-service";
+import {
+  getSubscriptionUpdatedAt,
+  persistNodeHealthResults,
+} from "@local/lib/subscription-service";
 
 type HealthStreamMessage =
   | { type: "result"; name: string; sourceId: string; result: unknown }
@@ -47,6 +50,12 @@ export async function POST(request: Request) {
       typeof (body as Record<string, unknown>).subscriptionId === "string"
         ? ((body as Record<string, unknown>).subscriptionId as string).trim()
         : "";
+    const subscriptionUpdatedAt = subscriptionId
+      ? await getSubscriptionUpdatedAt(admin.id, subscriptionId)
+      : null;
+    if (subscriptionId && !subscriptionUpdatedAt) {
+      return apiError("Subscription not found.", "NOT_FOUND", 404);
+    }
 
     try {
       const encoder = new TextEncoder();
@@ -65,7 +74,12 @@ export async function POST(request: Request) {
             });
             // 正在编辑已保存订阅时，把手动测活结果落库，下游订阅链接立即过滤不通节点
             if (subscriptionId) {
-              const persisted = await persistNodeHealthResults(admin.id, subscriptionId, result.nodes);
+              const persisted = await persistNodeHealthResults(
+                admin.id,
+                subscriptionId,
+                subscriptionUpdatedAt as Date,
+                result.nodes
+              );
               if (!persisted) {
                 throw new Error("测活完成，但订阅不存在或已被删除，结果未持久化");
               }

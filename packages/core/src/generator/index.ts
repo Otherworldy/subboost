@@ -2,7 +2,7 @@
  * Clash 配置生成器 - 浏览器端运行
  */
 
-import yaml from "js-yaml";
+import * as yaml from "js-yaml";
 import {
   buildDefaultBaseConfigPatch,
   buildDefaultUserConfig,

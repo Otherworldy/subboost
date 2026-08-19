@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchSourceUserInfoHeadersDirect, importSourceUrlDirect } from "./source-import";
+import { ResponseTooLargeError } from "./pinned-http";
 
 const mocks = vi.hoisted(() => ({
   getAllowUnsafeSubscriptionSources: vi.fn(),
@@ -285,33 +286,26 @@ describe("local source import transport", () => {
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
-  it("allows fetch attempts when DNS lookup fails without private records", async () => {
+  it("fails closed when DNS lookup cannot validate the target", async () => {
     mocks.lookup.mockRejectedValueOnce(new Error("dns down"));
-    vi.mocked(globalThis.fetch).mockResolvedValueOnce(response("ss://node", { status: 200 }));
 
     await expect(runTransport("https://example.com/sub")).resolves.toMatchObject({
-      ok: true,
-      content: "ss://node",
+      ok: false,
+      error: "无法解析订阅域名，请稍后重试",
     });
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(mocks.requestPinnedText).not.toHaveBeenCalled();
   });
 
   it("follows redirects and returns text plus normalized headers", async () => {
-    vi.mocked(globalThis.fetch)
-      .mockResolvedValueOnce(
-        response("", {
-          status: 302,
-          headers: { location: "/next" },
-        })
-      )
-      .mockResolvedValueOnce(
-        response("ss://node", {
-          status: 200,
-          headers: {
-            "Subscription-Userinfo": "upload=2048; total=4096",
-            "Content-Length": "9",
-          },
-        })
-      );
+    mocks.lookup.mockResolvedValue([{ address: "93.184.216.34" }]);
+    mocks.requestPinnedText
+      .mockResolvedValueOnce({ status: 302, headers: { location: "/next" }, content: "" })
+      .mockResolvedValueOnce({
+        status: 200,
+        headers: { "subscription-userinfo": "upload=2048; total=4096", "content-length": "9" },
+        content: "ss://node",
+      });
 
     await expect(runTransport("https://example.com/sub")).resolves.toMatchObject({
       ok: true,
@@ -322,88 +316,49 @@ describe("local source import transport", () => {
         "subscription-userinfo": "upload=2048; total=4096",
       },
     });
-    expect(globalThis.fetch).toHaveBeenNthCalledWith(
-      1,
-      "https://example.com/sub",
-      expect.objectContaining({ method: "GET", redirect: "manual" })
-    );
-    expect(globalThis.fetch).toHaveBeenNthCalledWith(
-      2,
-      "https://example.com/next",
-      expect.objectContaining({ method: "GET", redirect: "manual" })
-    );
+    expect(mocks.requestPinnedText).toHaveBeenNthCalledWith(1, expect.objectContaining({ url: "https://example.com/sub" }));
+    expect(mocks.requestPinnedText).toHaveBeenNthCalledWith(2, expect.objectContaining({ url: "https://example.com/next" }));
   });
 
-  it("reports HTTP failures and oversized responses with public reasons", async () => {
-    vi.mocked(globalThis.fetch).mockResolvedValueOnce(response("bad", { status: 503 }));
-
+  it("reports pinned HTTP failures and oversized responses with public reasons", async () => {
+    mocks.lookup.mockResolvedValue([{ address: "93.184.216.34" }]);
+    mocks.requestPinnedText.mockResolvedValueOnce({ status: 503, headers: {}, content: "bad" });
     await expect(runTransport("https://example.com/sub")).resolves.toMatchObject({
-      ok: false,
-      error: "HTTP 503",
-      publicReason: "HTTP 503",
-      responseStatus: 503,
+      ok: false, error: "HTTP 503", publicReason: "HTTP 503", responseStatus: 503,
     });
 
-    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
-      response("", {
-        status: 200,
-        headers: { "Content-Length": "2048" },
-      })
-    );
+    mocks.requestPinnedText.mockRejectedValueOnce(new ResponseTooLargeError());
     await expect(runTransport("https://example.com/big")).resolves.toMatchObject({
-      ok: false,
-      publicReason: "HTTP 413",
-      responseStatus: 413,
+      ok: false, publicReason: "HTTP 413", responseStatus: 413,
     });
 
-    vi.mocked(globalThis.fetch).mockResolvedValueOnce(response("x".repeat(2048), { status: 200 }));
-    await expect(runTransport("https://example.com/body-big")).resolves.toMatchObject({
-      ok: false,
-      publicReason: "HTTP 413",
-      responseStatus: 413,
-    });
-
-    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
-      response("ss://node", {
-        status: 200,
-        headers: { "Content-Length": "unknown" },
-      })
-    );
+    mocks.requestPinnedText.mockResolvedValueOnce({ status: 200, headers: { "content-length": "unknown" }, content: "ss://node" });
     await expect(runTransport("https://example.com/unknown-length")).resolves.toMatchObject({
-      ok: true,
-      content: "ss://node",
+      ok: true, content: "ss://node",
     });
   });
 
-  it("handles redirect loops, missing locations, and thrown fetch errors", async () => {
-    vi.mocked(globalThis.fetch).mockImplementation(async () => (
-      response("", { status: 302, headers: { location: "/next" } })
-    ));
+  it("handles redirect loops, missing locations, and pinned request errors", async () => {
+    mocks.lookup.mockResolvedValue([{ address: "93.184.216.34" }]);
+    mocks.requestPinnedText.mockResolvedValue({ status: 302, headers: { location: "/next" }, content: "" });
     await expect(runTransport("https://example.com/loop")).resolves.toMatchObject({
-      ok: false,
-      publicReason: "HTTP 310",
-      responseStatus: 310,
+      ok: false, publicReason: "HTTP 310", responseStatus: 310,
     });
 
-    vi.mocked(globalThis.fetch).mockResolvedValueOnce(response("redirect", { status: 302 }));
+    mocks.requestPinnedText.mockReset();
+    mocks.requestPinnedText.mockResolvedValueOnce({ status: 302, headers: {}, content: "redirect" });
     await expect(runTransport("https://example.com/missing-location")).resolves.toMatchObject({
-      ok: false,
-      error: "HTTP 302",
-      publicReason: "HTTP 302",
-      responseStatus: 302,
+      ok: false, error: "HTTP 302", publicReason: "HTTP 302", responseStatus: 302,
     });
 
-    vi.mocked(globalThis.fetch).mockRejectedValueOnce(new Error("network down"));
+    mocks.requestPinnedText.mockRejectedValueOnce(new Error("network down"));
     await expect(runTransport("https://example.com/error")).resolves.toMatchObject({
-      ok: false,
-      error: "network down",
-      publicReason: "network down",
+      ok: false, error: "network down", publicReason: "network down",
     });
 
-    vi.mocked(globalThis.fetch).mockResolvedValueOnce(response("", { status: 302, headers: { location: "http://127.0.0.1/private" } }));
+    mocks.requestPinnedText.mockResolvedValueOnce({ status: 302, headers: { location: "http://127.0.0.1/private" }, content: "" });
     await expect(runTransport("https://example.com/private-redirect")).resolves.toMatchObject({
-      ok: false,
-      publicReason: "禁止访问本机或内网地址",
+      ok: false, publicReason: "禁止访问本机或内网地址",
     });
   });
 
@@ -423,12 +378,12 @@ describe("local source import transport", () => {
   it("returns userinfo headers with HEAD and skips when no userinfo URL is configured", async () => {
     await expect(fetchSourceUserInfoHeadersDirect({})).resolves.toBeUndefined();
 
-    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
-      response("", {
-        status: 200,
-        headers: { "Subscription-Userinfo": "upload=1; total=2048" },
-      })
-    );
+    mocks.lookup.mockResolvedValue([{ address: "93.184.216.34" }]);
+    mocks.requestPinnedText.mockResolvedValueOnce({
+      status: 200,
+      headers: { "subscription-userinfo": "upload=1; total=2048" },
+      content: "",
+    });
 
     await expect(
       fetchSourceUserInfoHeadersDirect({
@@ -438,23 +393,18 @@ describe("local source import transport", () => {
     ).resolves.toMatchObject({
       "subscription-userinfo": "upload=1; total=2048",
     });
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      "https://example.com/userinfo",
-      expect.objectContaining({
-        method: "HEAD",
-        headers: expect.objectContaining({ "User-Agent": "Custom UA" }),
-      })
-    );
+    expect(mocks.requestPinnedText).toHaveBeenCalledWith(expect.objectContaining({
+      url: "https://example.com/userinfo",
+      method: "HEAD",
+      userAgent: "Custom UA",
+    }));
 
-    vi.mocked(globalThis.fetch).mockResolvedValueOnce(response("", { status: 404 }));
+    mocks.requestPinnedText.mockResolvedValueOnce({ status: 404, headers: {}, content: "" });
     await expect(fetchSourceUserInfoHeadersDirect({ userinfoUrl: "https://example.com/missing" })).resolves.toBeUndefined();
-    expect(globalThis.fetch).toHaveBeenLastCalledWith(
-      "https://example.com/missing",
-      expect.objectContaining({
-        method: "HEAD",
-        headers: expect.objectContaining({ "User-Agent": expect.any(String) }),
-      })
-    );
+    expect(mocks.requestPinnedText).toHaveBeenLastCalledWith(expect.objectContaining({
+      url: "https://example.com/missing",
+      method: "HEAD",
+    }));
 
     mocks.getAllowUnsafeSubscriptionSources.mockResolvedValue(true);
     vi.mocked(globalThis.fetch).mockResolvedValueOnce(
