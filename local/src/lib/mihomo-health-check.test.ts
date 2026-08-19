@@ -433,6 +433,30 @@ describe("executeHealthCheck", () => {
     ]);
     expect(log.filter((entry) => entry.path.includes("/delay"))).toHaveLength(0);
   });
+
+  it("settles and cleans up when many delay requests never return", async () => {
+    let signal: AbortSignal | undefined;
+    const requestImpl = vi.fn(
+      async (_socketPath: string, _method: string, path: string, _timeoutMs: number, requestSignal?: AbortSignal) => {
+        signal = requestSignal;
+        if (path.startsWith("/version")) return { status: 200, body: "{}" };
+        return new Promise<MihomoRequestResult>(() => undefined);
+      }
+    );
+    const { deps, child, rmImpl } = makeDeps({ requestImpl });
+    const nodes = Array.from({ length: 40 }, (_, index) => vmess(`Node ${index}`));
+
+    const results = await executeHealthCheck(
+      { nodes, config: { ...CONFIG, concurrency: 2 }, mihomoPath: "/usr/bin/mihomo", overallTimeoutMs: 20 },
+      deps
+    );
+
+    expect(results).toHaveLength(nodes.length);
+    expect([...results.values()].every((result) => result.status === "fail")).toBe(true);
+    expect(signal?.aborted).toBe(true);
+    expect(child.exitCode).not.toBeNull();
+    expect(rmImpl).toHaveBeenCalledWith("/tmp/subboost-mihomo-test");
+  });
 });
 
 describe("resolveMihomoBinaryPath", () => {

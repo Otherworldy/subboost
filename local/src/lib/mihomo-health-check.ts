@@ -40,9 +40,18 @@ const RETRY_DELAY_MS = 500;
 
 export type MihomoRequestResult = { status: number; body: string };
 
+class MihomoHealthCheckDeadlineError extends MihomoHealthCheckError {}
+class MihomoRequestTimeoutError extends Error {}
+
 export type MihomoHealthCheckDeps = {
   spawnImpl?: (command: string, args: string[], options: SpawnOptions) => ChildProcess;
-  requestImpl?: (socketPath: string, method: string, path: string, timeoutMs: number) => Promise<MihomoRequestResult>;
+  requestImpl?: (
+    socketPath: string,
+    method: string,
+    path: string,
+    timeoutMs: number,
+    signal?: AbortSignal
+  ) => Promise<MihomoRequestResult>;
   statImpl?: (path: string) => Promise<unknown>;
   delayImpl?: (ms: number) => Promise<void>;
   mkdtempImpl?: (prefix: string) => Promise<string>;
@@ -92,17 +101,20 @@ function requestUnixSocket(
   socketPath: string,
   method: string,
   path: string,
-  timeoutMs: number
+  timeoutMs: number,
+  signal?: AbortSignal
 ): Promise<MihomoRequestResult> {
   return new Promise((resolve, reject) => {
     const req = http.request(
-      { socketPath, method, path, agent: false, headers: { "Content-Length": "0" } },
+      { socketPath, method, path, agent: false, signal, headers: { "Content-Length": "0" } },
       (res) => {
         let body = "";
         res.setEncoding("utf8");
         res.on("data", (chunk) => {
           body += chunk;
         });
+        res.on("aborted", () => reject(new Error("mihomo response aborted")));
+        res.on("error", reject);
         res.on("end", () => resolve({ status: res.statusCode ?? 0, body }));
       }
     );
@@ -172,6 +184,7 @@ type ProbeContext = {
   startupTimeoutMs: number;
   requestGraceMs: number;
   deadline: number;
+  signal: AbortSignal;
   stopGraceMs: number;
   results: Map<string, NodeHealthResult>;
   onResult?: (nodeName: string, result: NodeHealthResult) => void;
@@ -186,9 +199,50 @@ type ProbeDeps = Required<
   Pick<MihomoHealthCheckDeps, "spawnImpl" | "requestImpl" | "delayImpl" | "writeFileImpl">
 >;
 
+function remainingMs(context: ProbeContext): number {
+  return Math.max(0, context.deadline - Date.now());
+}
+
+async function requestWithinDeadline(
+  context: ProbeContext,
+  deps: ProbeDeps,
+  method: string,
+  path: string,
+  timeoutMs: number
+): Promise<MihomoRequestResult> {
+  const remaining = remainingMs(context);
+  if (remaining <= 0) throw new MihomoHealthCheckDeadlineError("测活整体超时");
+
+  const effectiveTimeoutMs = Math.max(1, Math.min(timeoutMs, remaining));
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const request = Promise.resolve().then(() =>
+    deps.requestImpl(context.socketPath, method, path, effectiveTimeoutMs, context.signal)
+  );
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      if (context.signal.aborted || remainingMs(context) <= 0) {
+        reject(new MihomoHealthCheckDeadlineError("测活整体超时"));
+      } else {
+        reject(new MihomoRequestTimeoutError(`mihomo 请求超时（${effectiveTimeoutMs}ms）`));
+      }
+    }, effectiveTimeoutMs);
+  });
+
+  try {
+    return await Promise.race([request, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 // 启动一次 mihomo 实例并测活一组节点；启动失败抛 MihomoHealthCheckError（带内核日志尾部）
 async function probeGroup(group: ProbeGroupEntry[], context: ProbeContext, deps: ProbeDeps): Promise<void> {
-  const { config, checkedAt, results } = context;  let child: ChildProcess | null = null;
+  const { config, checkedAt, results } = context;
+  if (remainingMs(context) <= 0) {
+    for (const entry of group) recordResult(context, entry.node.name, { status: "fail", checkedAt });
+    return;
+  }
+  let child: ChildProcess | null = null;
   try {
     const proxies = group.map(({ node, probeName }) => {
       const sanitized = sanitizeMihomoProxyNode(node) as Record<string, unknown>;
@@ -220,14 +274,20 @@ async function probeGroup(group: ProbeGroupEntry[], context: ProbeContext, deps:
     const outputTail = captureOutputTail(child);
 
     // 等待控制 API 就绪；进程提前退出视为内核启动失败
-    const readyDeadline = Date.now() + context.startupTimeoutMs;
+    const readyDeadline = Math.min(Date.now() + context.startupTimeoutMs, context.deadline);
     let ready = false;
     while (Date.now() < readyDeadline) {
       if (child.exitCode !== null) {
         throw new MihomoHealthCheckError(`mihomo 内核启动失败（退出码 ${child.exitCode}）：${outputTail()}`);
       }
       try {
-        const version = await deps.requestImpl(context.socketPath, "GET", "/version", 1000);
+        const version = await requestWithinDeadline(
+          context,
+          deps,
+          "GET",
+          "/version",
+          Math.min(1000, Math.max(1, readyDeadline - Date.now()))
+        );
         if (version.status === 200) {
           if (child.exitCode !== null) {
             throw new MihomoHealthCheckError(`mihomo 内核启动失败（退出码 ${child.exitCode}）：${outputTail()}`);
@@ -238,9 +298,11 @@ async function probeGroup(group: ProbeGroupEntry[], context: ProbeContext, deps:
       } catch {
         // socket 尚未就绪，继续轮询
       }
-      await deps.delayImpl(200);
+      const waitMs = Math.min(200, Math.max(0, readyDeadline - Date.now()));
+      if (waitMs > 0) await deps.delayImpl(waitMs);
     }
     if (!ready) {
+      if (remainingMs(context) <= 0) throw new MihomoHealthCheckDeadlineError("测活整体超时");
       throw new MihomoHealthCheckError(`mihomo 内核在 ${context.startupTimeoutMs}ms 内未就绪：${outputTail()}`);
     }
 
@@ -249,7 +311,7 @@ async function probeGroup(group: ProbeGroupEntry[], context: ProbeContext, deps:
     const probeDelay = async (probeName: string): Promise<NodeHealthResult> => {
       const delayPath = `/proxies/${encodeURIComponent(probeName)}/delay?url=${encodeURIComponent(config.url)}&timeout=${config.maxDelayMs}`;
       try {
-        const res = await deps.requestImpl(context.socketPath, "GET", delayPath, timeoutMs);
+        const res = await requestWithinDeadline(context, deps, "GET", delayPath, timeoutMs);
         if (res.status === 404) {
           // 内核未加载该代理类型：按不支持处理，不中断同组其他节点
           return { status: "unsupported", checkedAt };
@@ -262,6 +324,7 @@ async function probeGroup(group: ProbeGroupEntry[], context: ProbeContext, deps:
         }
         return { status: "fail", checkedAt };
       } catch (error) {
+        if (error instanceof MihomoHealthCheckDeadlineError) return { status: "fail", checkedAt };
         if (error instanceof MihomoHealthCheckError) throw error;
         return { status: "fail", checkedAt };
       }
@@ -277,10 +340,10 @@ async function probeGroup(group: ProbeGroupEntry[], context: ProbeContext, deps:
           continue;
         }
         let result = await probeDelay(probeName);
-        if (result.status === "fail") {
+        if (result.status === "fail" && remainingMs(context) > 0) {
           // 瞬时失败（并发限流/连接排队）重试一次；再次失败才判定为不通
-          await deps.delayImpl(RETRY_DELAY_MS);
-          result = await probeDelay(probeName);
+          await deps.delayImpl(Math.min(RETRY_DELAY_MS, remainingMs(context)));
+          if (remainingMs(context) > 0) result = await probeDelay(probeName);
         }
         recordResult(context, node.name, result);
       }
@@ -335,7 +398,9 @@ export async function executeHealthCheck(
   const requestGraceMs = params.requestGraceMs ?? REQUEST_GRACE_MS;
   const overallTimeoutMs = params.overallTimeoutMs ?? OVERALL_TIMEOUT_MS;
   const stopGraceMs = params.stopGraceMs ?? STOP_GRACE_MS;
-  const deadline = Date.now() + overallTimeoutMs;
+  const deadline = Date.now() + Math.max(0, overallTimeoutMs);
+  const abortController = new AbortController();
+  const deadlineTimer = setTimeout(() => abortController.abort(), Math.max(0, overallTimeoutMs));
   const context: ProbeContext = {
     binary,
     socketPath,
@@ -345,6 +410,7 @@ export async function executeHealthCheck(
     startupTimeoutMs,
     requestGraceMs,
     deadline,
+    signal: abortController.signal,
     stopGraceMs,
     results,
     onResult: params.onResult,
@@ -354,6 +420,12 @@ export async function executeHealthCheck(
     await probeGroup(probeable, context, deps);
   } catch (error) {
     if (!(error instanceof MihomoHealthCheckError)) throw error;
+    if (error instanceof MihomoHealthCheckDeadlineError || remainingMs(context) <= 0) {
+      for (const entry of probeable) {
+        if (!results.has(entry.node.name)) recordResult(context, entry.node.name, { status: "fail", checkedAt });
+      }
+      return results;
+    }
     // 整体启动失败：按类型分组逐个重试，无法启动的类型整组标记 unsupported，
     // 其余类型照常测活；全部类型都无法启动才视为系统性失败（保留旧快照）。
     const groups = new Map<string, ProbeGroupEntry[]>();
@@ -369,6 +441,12 @@ export async function executeHealthCheck(
         startedAny = true;
       } catch (groupError) {
         if (!(groupError instanceof MihomoHealthCheckError)) throw groupError;
+        if (groupError instanceof MihomoHealthCheckDeadlineError || remainingMs(context) <= 0) {
+          for (const entry of probeable) {
+            if (!results.has(entry.node.name)) recordResult(context, entry.node.name, { status: "fail", checkedAt });
+          }
+          return results;
+        }
         for (const entry of group) {
           recordResult(context, entry.node.name, { status: "unsupported", checkedAt });
         }
@@ -376,6 +454,7 @@ export async function executeHealthCheck(
     }
     if (!startedAny) throw error;
   } finally {
+    clearTimeout(deadlineTimer);
     await deps.rmImpl(tempDir).catch(() => undefined);
   }
 
