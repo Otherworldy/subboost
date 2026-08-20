@@ -262,7 +262,7 @@ describe("local subscription service", () => {
     });
   });
 
-  it("runs immediate health checks before persisting and aborts on kernel failure", async () => {
+  it("persists subscription immediately on save and triggers background health checks asynchronously", async () => {
     const healthSource = {
       id: "s1",
       type: "nodes",
@@ -271,6 +271,7 @@ describe("local subscription service", () => {
     };
     const healthNode = { ...node("Health A"), _sourceIds: ["s1"] };
 
+    // 保存立即返回，不阻塞等待测活
     await expect(
       createSubscription("owner-1", {
         name: "Health",
@@ -282,19 +283,16 @@ describe("local subscription service", () => {
       nodes: [expect.objectContaining({ name: "Health A" })],
     });
 
-    expect(mocks.runMihomoHealthCheck).toHaveBeenCalledTimes(1);
+    expect(mocks.prisma.subscription.create).toHaveBeenCalledTimes(1);
+
+    // 等待后台异步测活任务调度
+    await new Promise((resolve) => setTimeout(resolve, 10));
     expect(mocks.runMihomoHealthCheck).toHaveBeenCalledWith(
       expect.objectContaining({ config: expect.objectContaining({ enabled: true, maxDelayMs: 1500 }) }),
-      "interactive"
+      "background"
     );
-    expect(mocks.prisma.subscription.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        encryptedNodes: expect.stringContaining('"_health"'),
-      }),
-      include: { autoUpdateState: true },
-    });
 
-    // 内核系统性失败：不写入记录
+    // 内核失败时不阻断保存
     mocks.runMihomoHealthCheck.mockRejectedValueOnce(new Error("未找到 mihomo 内核"));
     await expect(
       createSubscription("owner-1", {
@@ -302,10 +300,12 @@ describe("local subscription service", () => {
         nodes: [healthNode],
         config: { sources: [healthSource] },
       })
-    ).rejects.toThrow("未找到 mihomo 内核");
-    expect(mocks.prisma.subscription.create).toHaveBeenCalledTimes(1);
+    ).resolves.toMatchObject({
+      subscription: { name: "Created" },
+    });
+    expect(mocks.prisma.subscription.create).toHaveBeenCalledTimes(2);
 
-    // 更新路径同样先测后写
+    // 更新路径同样直接保存并异步测活
     mocks.prisma.subscription.findFirst.mockResolvedValueOnce(
       row({ encryptedNodes: JSON.stringify([healthNode]) })
     );
@@ -315,22 +315,9 @@ describe("local subscription service", () => {
         config: { sources: [healthSource] },
       })
     ).resolves.toMatchObject({ subscription: { name: "Updated" } });
-    expect(mocks.runMihomoHealthCheck).toHaveBeenCalledTimes(3);
-
-    mocks.prisma.subscription.findFirst.mockResolvedValueOnce(
-      row({ encryptedNodes: JSON.stringify([healthNode]) })
-    );
-    mocks.runMihomoHealthCheck.mockRejectedValueOnce(new Error("内核启动失败"));
-    await expect(
-      updateSubscription("owner-1", "sub-1", {
-        name: "Broken update",
-        config: { sources: [healthSource] },
-      })
-    ).rejects.toThrow("内核启动失败");
-    expect(mocks.runMihomoHealthCheck).toHaveBeenCalledTimes(4);
   });
 
-  it("always probes enabled sources on save and invalidates results when settings change", async () => {
+  it("persists existing node health on save and triggers background refresh for enabled sources", async () => {
     const checkedAt = new Date().toISOString();
     const healthSource = {
       id: "s1",
@@ -344,21 +331,24 @@ describe("local subscription service", () => {
       _health: { s1: { status: "ok", delayMs: 20, checkedAt } },
     };
 
+    mocks.runMihomoHealthCheck.mockClear();
     await createSubscription("owner-1", {
       name: "Cached health",
       nodes: [cachedNode],
       config: { sources: [healthSource] },
     });
-    // 已有结果也重新探测，不使用过期结果
-    expect(mocks.runMihomoHealthCheck).toHaveBeenCalledTimes(1);
-    expect(mocks.runMihomoHealthCheck).toHaveBeenCalledWith(
-      expect.objectContaining({ nodes: [expect.objectContaining({ name: "Cached" })] }),
-      "interactive"
-    );
+    // 直接持久化传入的节点及已有 health
     expect(mocks.prisma.subscription.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ encryptedNodes: expect.stringContaining('"_health"') }),
       })
+    );
+
+    // 后台异步触发测活
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(mocks.runMihomoHealthCheck).toHaveBeenCalledWith(
+      expect.objectContaining({ nodes: [expect.objectContaining({ name: "Cached" })] }),
+      "background"
     );
 
     mocks.runMihomoHealthCheck.mockClear();
@@ -378,11 +368,10 @@ describe("local subscription service", () => {
         ],
       },
     });
-
-    expect(mocks.runMihomoHealthCheck).toHaveBeenCalledTimes(1);
+    await new Promise((resolve) => setTimeout(resolve, 10));
     expect(mocks.runMihomoHealthCheck).toHaveBeenCalledWith(
       expect.objectContaining({ nodes: [expect.objectContaining({ name: "Cached" })] }),
-      "interactive"
+      "background"
     );
 
     mocks.runMihomoHealthCheck.mockClear();
@@ -395,9 +384,10 @@ describe("local subscription service", () => {
     await updateSubscription("owner-1", "sub-1", {
       nodes: [{ ...cachedNode, server: "changed.example.com" }],
     });
+    await new Promise((resolve) => setTimeout(resolve, 10));
     expect(mocks.runMihomoHealthCheck).toHaveBeenCalledWith(
       expect.objectContaining({ nodes: [expect.objectContaining({ server: "changed.example.com" })] }),
-      "interactive"
+      "background"
     );
 
     mocks.runMihomoHealthCheck.mockClear();
@@ -409,14 +399,11 @@ describe("local subscription service", () => {
       })
     );
     await updateSubscription("owner-1", "sub-1", {
-      config: { sources: [healthSource] },
+      config: { sources: [disabledSource] },
     });
-    // 重新开启自动测活后同样立即重新探测
-    expect(mocks.runMihomoHealthCheck).toHaveBeenCalledTimes(1);
-    expect(mocks.runMihomoHealthCheck).toHaveBeenCalledWith(
-      expect.objectContaining({ nodes: [expect.objectContaining({ name: "Cached" })] }),
-      "interactive"
-    );
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    // 关闭自动测活时不触发后台测活
+    expect(mocks.runMihomoHealthCheck).not.toHaveBeenCalled();
   });
 
   it("refreshes subscriptions with health callbacks wired through", async () => {

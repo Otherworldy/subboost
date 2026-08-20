@@ -90,7 +90,12 @@ export async function createSubscriptionResponse(request: Request) {
     if (!body || typeof body !== "object" || Array.isArray(body)) {
       return apiError("Invalid JSON body.", "BAD_REQUEST", 400);
     }
-    return streamSubscriptionResponse((onProgress) => createSubscription(admin.id, body, onProgress));
+    try {
+      const result = await createSubscription(admin.id, body);
+      return json(result);
+    } catch (error) {
+      return apiError(error instanceof Error ? error.message : "保存失败", "BAD_REQUEST", 400);
+    }
   });
 }
 
@@ -111,10 +116,14 @@ export async function updateSubscriptionResponse(request: Request, id: string) {
       return apiError("Invalid JSON body.", "BAD_REQUEST", 400);
     }
 
-    // 流外先确认订阅存在（避免在流内重复执行测活/写库）；404 保持 JSON 语义
     const existing = await getSubscription(admin.id, id);
     if (!existing) return apiError("Subscription not found.", "NOT_FOUND", 404);
-    return streamSubscriptionResponse((onProgress) => updateSubscription(admin.id, id, body, onProgress));
+    try {
+      const result = await updateSubscription(admin.id, id, body);
+      return json(result);
+    } catch (error) {
+      return apiError(error instanceof Error ? error.message : "保存失败", "BAD_REQUEST", 400);
+    }
   });
 }
 

@@ -546,4 +546,80 @@ describe("DialerProxyGroupsSection", () => {
     blockedGammaTargetRow!.onClick();
     expect(mocks.store.addNodeToDialerGroup).not.toHaveBeenCalledWith("g-a", "Gamma", false);
   });
+
+  it("supports select-all and toggle-all for relay and target nodes including search results", () => {
+    // 1. 中转节点：未全部选中时点击「全选」
+    renderSection({ 0: new Set(["g-a"]) });
+    const relaySelectAllBtn = mocks.captures.buttons.find(
+      (b: any) => textOf(b.children) === "全选" && b.title?.includes("中转")
+    );
+    expect(relaySelectAllBtn).toBeTruthy();
+    relaySelectAllBtn.onClick();
+    expect(mocks.store.updateDialerProxyGroup).toHaveBeenCalledWith("g-a", {
+      relayNodes: expect.arrayContaining(["Alpha", "DIRECT", "Gamma", "Auto Override", "Custom"]),
+    });
+
+    // 2. 中转节点：搜索后「全选结果」与「全不选」
+    mocks.store.updateDialerProxyGroup.mockClear();
+    renderSection({
+      0: new Set(["g-a"]),
+      5: { "g-a": "direct" },
+    });
+    const relaySearchResultBtn = mocks.captures.buttons.find(
+      (b: any) => textOf(b.children) === "全选结果" && b.title?.includes("搜索结果")
+    );
+    expect(relaySearchResultBtn).toBeTruthy();
+    relaySearchResultBtn.onClick();
+    expect(mocks.store.updateDialerProxyGroup).toHaveBeenCalledWith("g-a", {
+      relayNodes: expect.arrayContaining(["Alpha", "DIRECT"]),
+    });
+
+    // 中转节点已全选搜索结果时，显示「全不选」，点击仅移除搜索结果项
+    mocks.store.dialerProxyGroups = [{ ...groupA, relayNodes: ["Alpha", "DIRECT"] }];
+    renderSection({
+      0: new Set(["g-a"]),
+      5: { "g-a": "direct" },
+    });
+    const relayDeselectResultBtn = mocks.captures.buttons.find(
+      (b: any) => textOf(b.children) === "全不选" && b.title?.includes("中转")
+    );
+    expect(relayDeselectResultBtn).toBeTruthy();
+    relayDeselectResultBtn.onClick();
+    expect(mocks.store.updateDialerProxyGroup).toHaveBeenCalledWith("g-a", {
+      relayNodes: ["Alpha"],
+    });
+
+    // 3. 落地节点：全选（自动排除被其他启用组占用的节点）
+    mocks.store.dialerProxyGroups = [
+      { ...groupA, relayNodes: ["Alpha"], targetNodes: [] },
+      { ...groupB, enabled: true, targetNodes: ["Gamma"] },
+    ];
+    renderSection({ 0: new Set(["g-a"]) });
+    const targetSelectAllBtn = mocks.captures.buttons.find(
+      (b: any) => textOf(b.children) === "全选" && b.title?.includes("落地")
+    );
+    expect(targetSelectAllBtn).toBeTruthy();
+    targetSelectAllBtn.onClick();
+    // 可选落地节点包含 Beta（Gamma 被 groupB 占用，Alpha 被用作 relayNode）
+    expect(mocks.store.updateDialerProxyGroup).toHaveBeenCalledWith("g-a", {
+      targetNodes: ["Beta"],
+    });
+
+    // 4. 落地节点：搜索后全选结果
+    mocks.store.dialerProxyGroups = [
+      { ...groupA, relayNodes: [], targetNodes: [] },
+    ];
+    renderSection({
+      0: new Set(["g-a"]),
+      6: { "g-a": "beta" },
+    });
+    const targetSearchResultBtn = mocks.captures.buttons.find(
+      (b: any) => textOf(b.children) === "全选结果" && b.title?.includes("搜索结果")
+    );
+    expect(targetSearchResultBtn).toBeTruthy();
+    targetSearchResultBtn.onClick();
+    expect(mocks.store.updateDialerProxyGroup).toHaveBeenCalledWith("g-a", {
+      targetNodes: ["Beta"],
+    });
+  });
 });

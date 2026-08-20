@@ -130,10 +130,8 @@ describe("local subscription routes", () => {
 
     const createResponse = await pluralCollectionRoute.POST(jsonRequest("http://local.test/api/subscriptions", fullConfigPayload));
     expect(createResponse.status).toBe(200);
-    expect(await readNdjson(createResponse)).toEqual([
-      { type: "complete", value: { subscription, nodes: [] } },
-    ]);
-    expect(createSubscription).toHaveBeenCalledWith("admin-1", fullConfigPayload, expect.any(Function));
+    expect(await readJson(createResponse)).toEqual({ subscription, nodes: [] });
+    expect(createSubscription).toHaveBeenCalledWith("admin-1", fullConfigPayload);
   });
 
   it("rejects subscription bodies above 16 MiB", async () => {
@@ -162,7 +160,7 @@ describe("local subscription routes", () => {
       params
     );
     expect(updateResponse.status).toBe(200);
-    expect(updateSubscription).toHaveBeenCalledWith("admin-1", "sub-1", { ...fullConfigPayload, name: "Renamed" }, expect.any(Function));
+    expect(updateSubscription).toHaveBeenCalledWith("admin-1", "sub-1", { ...fullConfigPayload, name: "Renamed" });
 
     const refreshResponse = await pluralRefreshRoute.POST(new Request("http://local.test/api/subscriptions/sub-1/refresh"), params);
     expect(refreshResponse.status).toBe(200);

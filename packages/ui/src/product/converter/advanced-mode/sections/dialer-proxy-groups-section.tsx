@@ -461,22 +461,58 @@ export function DialerProxyGroupsSection({
                 <div className="px-3 pb-3 space-y-3 border-t border-white/10">
                   {/* 中转节点选择 */}
                   <div className="mt-3">
-                    <div className="mb-1 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                      <p className="text-xs text-white/50">中转节点（流量入口）</p>
-                      <div className="relative w-full sm:max-w-[220px]">
-                        <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/30" />
-                        <Input
-                          value={relaySearchByGroupId[group.id] ?? ""}
-                          onChange={(e) =>
-                            setRelaySearchByGroupId((prev) => ({ ...prev, [group.id]: e.target.value }))
-                          }
-                          placeholder="搜索中转节点..."
-                          disabled={availableRelayNodes.length === 0}
-                          className="h-7 bg-white/5 pl-7 text-xs border-white/10"
-                          onClick={(e) => e.stopPropagation()}
-                        />
-                      </div>
-                    </div>
+                    {(() => {
+                      const isAllRelaySelected =
+                        visibleRelayNodes.length > 0 &&
+                        visibleRelayNodes.every((node) => group.relayNodes.includes(node.name));
+
+                      const handleToggleAllRelay = () => {
+                        if (visibleRelayNodes.length === 0) return;
+                        if (isAllRelaySelected) {
+                          const visibleNames = new Set(visibleRelayNodes.map((n) => n.name));
+                          const nextRelayNodes = group.relayNodes.filter((name) => !visibleNames.has(name));
+                          updateDialerProxyGroup(group.id, { relayNodes: nextRelayNodes });
+                        } else {
+                          const nextRelayNodes = Array.from(
+                            new Set([...group.relayNodes, ...visibleRelayNodes.map((n) => n.name)])
+                          );
+                          updateDialerProxyGroup(group.id, { relayNodes: nextRelayNodes });
+                        }
+                      };
+
+                      return (
+                        <div className="mb-1 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="flex items-center gap-1.5">
+                            <p className="text-xs text-white/50">中转节点（流量入口）</p>
+                            {visibleRelayNodes.length > 0 && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-5 px-1.5 text-[10px] text-indigo-300 hover:text-indigo-100 hover:bg-indigo-500/15"
+                                onClick={handleToggleAllRelay}
+                                title={isAllRelaySelected ? "取消全选中转节点" : (relaySearchKeyword ? "全选当前搜索结果" : "全选中转节点")}
+                              >
+                                {isAllRelaySelected ? "全不选" : relaySearchKeyword ? "全选结果" : "全选"}
+                              </Button>
+                            )}
+                          </div>
+                          <div className="relative w-full sm:max-w-[220px]">
+                            <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/30" />
+                            <Input
+                              value={relaySearchByGroupId[group.id] ?? ""}
+                              onChange={(e) =>
+                                setRelaySearchByGroupId((prev) => ({ ...prev, [group.id]: e.target.value }))
+                              }
+                              placeholder="搜索中转节点..."
+                              disabled={availableRelayNodes.length === 0}
+                              className="h-7 bg-white/5 pl-7 text-xs border-white/10"
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })()}
                     <div className={DIALER_NODE_LIST_HEIGHT_CLASS}>
                       {visibleRelayNodes.map((node) => {
                         const isSelected = group.relayNodes.includes(node.name);
@@ -525,22 +561,63 @@ export function DialerProxyGroupsSection({
 
                   {/* 目标节点选择 */}
                   <div>
-                    <div className="mb-1 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                      <p className="text-xs text-white/50">落地节点（流量出口）</p>
-                      <div className="relative w-full sm:max-w-[220px]">
-                        <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/30" />
-                        <Input
-                          value={targetSearchByGroupId[group.id] ?? ""}
-                          onChange={(e) =>
-                            setTargetSearchByGroupId((prev) => ({ ...prev, [group.id]: e.target.value }))
-                          }
-                          placeholder="搜索落地节点..."
-                          disabled={availableTargetNodes.length === 0}
-                          className="h-7 bg-white/5 pl-7 text-xs border-white/10"
-                          onClick={(e) => e.stopPropagation()}
-                        />
-                      </div>
-                    </div>
+                    {(() => {
+                      const selectableVisibleTargetNodes = visibleTargetNodes.filter(
+                        (node) => !dialerProxyGroups.some(
+                          (g) => g.id !== group.id && g.enabled !== false && g.targetNodes.includes(node.name)
+                        )
+                      );
+                      const isAllTargetSelected =
+                        selectableVisibleTargetNodes.length > 0 &&
+                        selectableVisibleTargetNodes.every((node) => group.targetNodes.includes(node.name));
+
+                      const handleToggleAllTarget = () => {
+                        if (selectableVisibleTargetNodes.length === 0) return;
+                        if (isAllTargetSelected) {
+                          const visibleNames = new Set(visibleTargetNodes.map((n) => n.name));
+                          const nextTargetNodes = group.targetNodes.filter((name) => !visibleNames.has(name));
+                          updateDialerProxyGroup(group.id, { targetNodes: nextTargetNodes });
+                        } else {
+                          const nextTargetNodes = Array.from(
+                            new Set([...group.targetNodes, ...selectableVisibleTargetNodes.map((n) => n.name)])
+                          );
+                          updateDialerProxyGroup(group.id, { targetNodes: nextTargetNodes });
+                        }
+                      };
+
+                      return (
+                        <div className="mb-1 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="flex items-center gap-1.5">
+                            <p className="text-xs text-white/50">落地节点（流量出口）</p>
+                            {selectableVisibleTargetNodes.length > 0 && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-5 px-1.5 text-[10px] text-green-300 hover:text-green-100 hover:bg-green-500/15"
+                                onClick={handleToggleAllTarget}
+                                title={isAllTargetSelected ? "取消全选落地节点" : (targetSearchKeyword ? "全选当前搜索结果" : "全选落地节点")}
+                              >
+                                {isAllTargetSelected ? "全不选" : targetSearchKeyword ? "全选结果" : "全选"}
+                              </Button>
+                            )}
+                          </div>
+                          <div className="relative w-full sm:max-w-[220px]">
+                            <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/30" />
+                            <Input
+                              value={targetSearchByGroupId[group.id] ?? ""}
+                              onChange={(e) =>
+                                setTargetSearchByGroupId((prev) => ({ ...prev, [group.id]: e.target.value }))
+                              }
+                              placeholder="搜索落地节点..."
+                              disabled={availableTargetNodes.length === 0}
+                              className="h-7 bg-white/5 pl-7 text-xs border-white/10"
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })()}
                     <div className={DIALER_NODE_LIST_HEIGHT_CLASS}>
                       {visibleTargetNodes.map((node) => {
                           const isSelected = group.targetNodes.includes(node.name);

@@ -266,8 +266,7 @@ export async function listSubscriptions(ownerId: string): Promise<SubscriptionSu
 
 export async function createSubscription(
   ownerId: string,
-  body: unknown,
-  onProgress?: (tested: number, total: number) => void
+  body: unknown
 ): Promise<{ subscription: SubscriptionSummary; nodes: ParsedNode[] }> {
   if (!isRecord(body)) {
     throw new Error("Invalid request body.");
@@ -280,13 +279,7 @@ export async function createSubscription(
   if (urls.length === 0 && nodes.length === 0) throw new Error("At least one URL or node is required.");
 
   const config = buildLocalSubscriptionConfig(body);
-  // 开启自动测活的源：保存前立即测活，结果随节点一起持久化；内核系统性失败则不创建
-  const nodesWithHealth = await runSubscriptionHealthChecks(
-    nodes,
-    (config.sources ?? []) as SavedSource[],
-    onProgress
-  );
-  assertNodeNameFilterKeepsOutput(nodesWithHealth, config);
+  assertNodeNameFilterKeepsOutput(nodes, config);
   const autoUpdateInterval = normalizeLocalAutoUpdateIntervalSeconds(body.autoUpdateInterval);
   const subscriptionInfo = normalizeSubscriptionInfoForPersistence(body.subscriptionInfo) ?? {};
 
@@ -299,7 +292,7 @@ export async function createSubscription(
         name,
         token: subscriptionToken || generateLocalSubscriptionToken(),
         encryptedUrls: encryptJson(urls),
-        encryptedNodes: encryptJson(nodesWithHealth),
+        encryptedNodes: encryptJson(nodes),
         encryptedConfig: encryptJson(config),
         encryptedSubscriptionInfo: encryptJson(subscriptionInfo),
         autoUpdateInterval,
@@ -312,7 +305,11 @@ export async function createSubscription(
     }
     throw error;
   }
-  return { subscription: formatSubscription(row), nodes: nodesWithHealth };
+
+  // 保存与测活解耦：后台异步触发自动测活，不阻塞保存响应
+  scheduleBackgroundHealthCheck(ownerId, row.id, (config.sources ?? []) as SavedSource[], nodes);
+
+  return { subscription: formatSubscription(row), nodes };
 }
 
 function isSubscriptionTokenConflictError(error: unknown): boolean {
@@ -471,8 +468,7 @@ export async function importSubscriptions(
 export async function updateSubscription(
   ownerId: string,
   id: string,
-  body: unknown,
-  onProgress?: (tested: number, total: number) => void
+  body: unknown
 ): Promise<{ subscription: SubscriptionSummary | null; nodes: ParsedNode[] }> {
   if (!isRecord(body)) throw new Error("Invalid request body.");
   const current = await prisma.subscription.findFirst({ where: { id, ownerId }, include: { autoUpdateState: true } });
@@ -512,12 +508,6 @@ export async function updateSubscription(
     if (nextUrls.length === 0 && nextNodes.length === 0) {
       throw new Error("At least one URL or node is required.");
     }
-    // 开启自动测活的源：保存前立即测活，结果随节点一起持久化；内核系统性失败则不更新
-    nodesWithHealth = await runSubscriptionHealthChecks(
-      nodesWithHealth,
-      (nextConfig.sources ?? []) as SavedSource[],
-      onProgress
-    );
     assertNodeNameFilterKeepsOutput(nodesWithHealth, nextConfig);
     data.encryptedNodes = encryptJson(nodesWithHealth);
   }
@@ -551,6 +541,15 @@ export async function updateSubscription(
       include: { autoUpdateState: true },
     });
   });
+
+  // 保存与测活解耦：后台异步触发自动测活，不阻塞保存响应
+  scheduleBackgroundHealthCheck(
+    ownerId,
+    row.id,
+    (nextConfig.sources ?? []) as SavedSource[],
+    nodesWithHealth
+  );
+
   return { subscription: formatSubscription(row), nodes: nodesWithHealth };
 }
 
@@ -618,13 +617,57 @@ export function buildSubscriptionFetchCallbacks(queue: MihomoHealthCheckQueue = 
   };
 }
 
-/** 创建/更新订阅保存前，对开启自动测活的源立即测活并合并结果；内核系统性失败时抛出。
+function extractHealthResultsFromNodes(
+  nodes: ParsedNode[]
+): Array<{ name: string; health: Record<string, NodeHealthResult> }> {
+  const out: Array<{ name: string; health: Record<string, NodeHealthResult> }> = [];
+  for (const node of nodes) {
+    const health = getNodeHealthResults(node);
+    if (Object.keys(health).length > 0) {
+      out.push({ name: node.name, health });
+    }
+  }
+  return out;
+}
+
+export function scheduleBackgroundHealthCheck(
+  ownerId: string,
+  subscriptionId: string,
+  sources: SavedSource[],
+  nodes: ParsedNode[]
+): void {
+  const hasAutoHealth = sources.some((s) => {
+    if (s.type === "url" && s.useProxyProviders) return false;
+    return resolveSourceHealthCheck(s).enabled;
+  });
+  if (!hasAutoHealth || nodes.length === 0) return;
+
+  void (async () => {
+    try {
+      const expectedUpdatedAt = await getSubscriptionUpdatedAt(ownerId, subscriptionId);
+      if (!expectedUpdatedAt) return;
+
+      const testedNodes = await runSubscriptionHealthChecks(nodes, sources, undefined, "background");
+      const results = extractHealthResultsFromNodes(testedNodes);
+      if (results.length > 0) {
+        await persistNodeHealthResults(ownerId, subscriptionId, expectedUpdatedAt, results);
+      }
+    } catch (error) {
+      console.error(`[Background HealthCheck] Failed for subscription ${subscriptionId}:`, error);
+    }
+  })();
+}
+
+/**
+ * 对开启自动测活的源执行测活并合并结果；内核系统性失败时抛出。
  * onProgress 用于流式回传测活进度（tested/total），不传则一次性完成。
- * 每次都重新探测全部节点，不使用过期结果。 */
-async function runSubscriptionHealthChecks(
+ * 每次都重新探测全部节点，不使用过期结果。
+ */
+export async function runSubscriptionHealthChecks(
   nodes: ParsedNode[],
   sources: SavedSource[],
-  onProgress?: (tested: number, total: number) => void
+  onProgress?: (tested: number, total: number) => void,
+  queue: MihomoHealthCheckQueue = "interactive"
 ): Promise<ParsedNode[]> {
   let next = nodes;
   let tested = 0;
@@ -655,7 +698,7 @@ async function runSubscriptionHealthChecks(
             }
           : {}),
       },
-      "interactive"
+      queue
     );
     next = applyNodeHealthResults(next, source.id, results);
   }
