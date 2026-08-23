@@ -1,14 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyCfPreferredToNodes,
   buildCfPreferredClone,
   CF_PREFERRED_MARK_KEY,
+  CF_PREFERRED_OF_KEY,
   cfPreferredSpecsFromSources,
   cfPreferredStaticBySource,
   expandCfPreferredNodes,
   getCfPreferredMark,
+  getCfPreferredOf,
   isCfCdnNode,
   isCfPreferredApiUrl,
   normalizeCfPreferredSourceConfig,
+  syncCfPreferredNodes,
 } from "./cf-preferred";
 import type { ParsedNode } from "../types/node";
 
@@ -148,11 +152,53 @@ describe("expandCfPreferredNodes", () => {
 });
 
 describe("buildCfPreferredClone", () => {
-  it("不修改原节点对象", () => {
-    const node = vlessWsTls();
-    buildCfPreferredClone(node, "1.2.3.4");
+  it("不修改原节点对象，且不带原节点测活结果", () => {
+    const node = vlessWsTls({ _health: { s1: { status: "ok", delayMs: 12, checkedAt: "t" } } });
+    const clone = buildCfPreferredClone(node, "1.2.3.4") as unknown as Record<string, unknown>;
     expect(node.server).toBe("hk.example.com");
     expect(node.name).toBe("香港 IEPL-01");
     expect((node as unknown as Record<string, unknown>)["servername"]).toBeUndefined();
+    expect((node as unknown as Record<string, unknown>)._health).toEqual({
+      s1: { status: "ok", delayMs: 12, checkedAt: "t" },
+    });
+    expect(clone._health).toBeUndefined();
+    expect(clone[CF_PREFERRED_OF_KEY]).toBe("香港 IEPL-01");
+    expect(clone._originName).toBe("香港 IEPL-01-CF");
+  });
+});
+
+describe("expandCfPreferredNodes idempotent / syncCfPreferredNodes", () => {
+  it("已有副本时不再生成第二个", () => {
+    const original = vlessWsTls();
+    const clone = buildCfPreferredClone(original, "1.2.3.4");
+    const renamed = { ...clone, name: "香港加速" }  as unknown as ParsedNode;
+    const out = expandCfPreferredNodes([original, renamed], { "src-a": { address: "9.9.9.9", mode: "clone" } });
+    expect(out).toHaveLength(2);
+    expect(out[1].name).toBe("香港加速");
+    expect(getCfPreferredOf(out[1])).toBe("香港 IEPL-01");
+  });
+
+  it("关掉源时丢掉副本；改地址时只改入口并保留名字和测活", () => {
+    const original = vlessWsTls();
+    const clone = {
+      ...buildCfPreferredClone(original, "1.2.3.4"),
+      _health: { s1: { status: "ok", delayMs: 40, checkedAt: "t" } },
+    } as unknown as ParsedNode;
+    expect(syncCfPreferredNodes([original, clone], undefined).map((n) => n.name)).toEqual(["香港 IEPL-01"]);
+    const updated = syncCfPreferredNodes([original, clone], { "src-a": { address: "9.9.9.9", mode: "clone" } });
+    expect(updated).toHaveLength(2);
+    expect(updated[1].name).toBe("香港 IEPL-01-CF");
+    expect(updated[1].server).toBe("9.9.9.9");
+    expect((updated[1] as unknown as Record<string, unknown>)._health).toEqual({
+      s1: { status: "ok", delayMs: 40, checkedAt: "t" },
+    });
+  });
+
+  it("applyCfPreferredToNodes 按源配置补副本", () => {
+    const out = applyCfPreferredToNodes([vlessWsTls()], [
+      { id: "src-a", cfPreferred: { enabled: true, address: "1.1.1.1" } },
+    ]);
+    expect(out.map((n) => n.name)).toEqual(["香港 IEPL-01", "香港 IEPL-01-CF"]);
+    expect(out[1].server).toBe("1.1.1.1");
   });
 });

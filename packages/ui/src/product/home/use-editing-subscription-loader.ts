@@ -9,7 +9,7 @@ import { ensureCustomRulesHaveIds } from "@subboost/core/rules/custom-rule-utils
 import { normalizeRuleModelFromConfig } from "@subboost/core/rules/rule-model";
 import { resolveProxyGroupAdvancedModeEnabled } from "@subboost/core/proxy-group-advanced-mode";
 import { normalizeProxyGroupAdvancedConfig } from "@subboost/core/proxy-group-advanced";
-import { normalizeCfPreferredSourceConfig } from "@subboost/core/subscription/cf-preferred";
+import { applyCfPreferredToNodes, normalizeCfPreferredSourceConfig } from "@subboost/core/subscription/cf-preferred";
 import { tryNormalizeSubscriptionUrlInput } from "@subboost/core/subscription/url-input";
 import { normalizeSourceHealthCheck } from "@subboost/core/subscription/node-health";
 import {
@@ -550,7 +550,7 @@ export function useEditingSubscriptionLoader({
 
         useConfigStore.setState((state) => ({
           ...state,
-          nodes: hydratedNodes,
+          nodes: applyCfPreferredToNodes(hydratedNodes, rebuiltSourcesWithStatus),
           deletedNodeNames: deletedNodeNamesMerged.length > 0 ? deletedNodeNamesMerged : state.deletedNodeNames,
           deletedNodes:
             deletedNodesFromCfg.length > 0

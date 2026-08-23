@@ -73,10 +73,25 @@ function rewriteCfServer(node: ParsedNode, address: string): Record<string, unkn
 }
 
 export const CF_PREFERRED_MARK_KEY = "_cfPreferred";
+export const CF_PREFERRED_OF_KEY = "_cfPreferredOf";
 
 export function getCfPreferredMark(node: ParsedNode): CfPreferredMode | undefined {
   const mark = (node as unknown as Record<string, unknown>)[CF_PREFERRED_MARK_KEY];
   return mark === "clone" || mark === "replace" ? mark : undefined;
+}
+
+export function getCfPreferredOf(node: ParsedNode): string | undefined {
+  const value = (node as unknown as Record<string, unknown>)[CF_PREFERRED_OF_KEY];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function originKey(node: ParsedNode): string {
+  const origin = (node as unknown as Record<string, unknown>)._originName;
+  return typeof origin === "string" && origin.trim() ? origin.trim() : node.name;
+}
+
+function cloneTargetKey(node: ParsedNode): string {
+  return getCfPreferredOf(node) ?? (node.name.endsWith("-CF") ? node.name.slice(0, -3) : node.name);
 }
 
 /** 为单个套 CF 节点构建优选副本（原节点名加 -CF 后缀） */
@@ -84,7 +99,19 @@ export function buildCfPreferredClone(node: ParsedNode, address: string): Parsed
   const clone = rewriteCfServer(node, address);
   clone.name = `${node.name}-CF`;
   clone[CF_PREFERRED_MARK_KEY] = "clone";
+  clone[CF_PREFERRED_OF_KEY] = originKey(node);
+  clone._originName = clone.name;
+  delete clone._health; // 副本未独立测活，不要展示原节点延迟
   return clone as unknown as ParsedNode;
+}
+
+function withCloneAddress(node: ParsedNode, address: string): ParsedNode {
+  if (node.server === address) return node;
+  const next = rewriteCfServer(node, address);
+  next.name = node.name;
+  next[CF_PREFERRED_MARK_KEY] = "clone";
+  next[CF_PREFERRED_OF_KEY] = cloneTargetKey(node);
+  return next as unknown as ParsedNode;
 }
 
 /** 直接替换原节点入口，节点名不变 */
@@ -149,17 +176,57 @@ function specForNode(
 
 /**
  * 按订阅源规则处理套 CF 节点：clone 保留原节点并追加 -CF 副本；replace 直接改入口。
- * 未命中规则或不符合 CF CDN 形态的节点原样保留。
+ * 已存在的 CF 副本原样保留，避免重复生成。
  */
 export function expandCfPreferredNodes(
   nodes: ParsedNode[],
   rulesBySourceId: Record<string, CfPreferredSpec> | undefined,
 ): ParsedNode[] {
   if (!rulesBySourceId || Object.keys(rulesBySourceId).length === 0) return nodes;
+  const existingOf = new Set<string>();
+  const existingNames = new Set<string>();
+  for (const node of nodes) {
+    existingNames.add(node.name);
+    if (getCfPreferredMark(node) === "clone") existingOf.add(cloneTargetKey(node));
+  }
   return nodes.flatMap((node) => {
+    if (getCfPreferredMark(node) === "clone") return [node];
     const spec = specForNode(node, rulesBySourceId);
     if (!spec || !isCfCdnNode(node)) return [node];
     if (spec.mode === "replace") return [buildCfReplacedNode(node, spec.address)];
-    return [node, buildCfPreferredClone(node, spec.address)];
+    if (existingOf.has(originKey(node)) || existingOf.has(node.name) || existingNames.has(`${node.name}-CF`)) {
+      return [node];
+    }
+    const clone = buildCfPreferredClone(node, spec.address);
+    existingOf.add(originKey(node));
+    existingOf.add(node.name);
+    existingNames.add(clone.name);
+    return [node, clone];
   });
+}
+
+/** 把 CF 副本写进节点列表：关掉的源丢掉副本，地址变了就改入口，缺的补上。 */
+export function syncCfPreferredNodes(
+  nodes: ParsedNode[],
+  rulesBySourceId: Record<string, CfPreferredSpec> | undefined,
+): ParsedNode[] {
+  const rules = rulesBySourceId ?? {};
+  const kept: ParsedNode[] = [];
+  for (const node of nodes) {
+    if (getCfPreferredMark(node) !== "clone") {
+      kept.push(node);
+      continue;
+    }
+    const spec = specForNode(node, rules);
+    if (!spec || spec.mode !== "clone") continue;
+    kept.push(withCloneAddress(node, spec.address));
+  }
+  const next = expandCfPreferredNodes(kept, Object.keys(rules).length > 0 ? rules : undefined);
+  if (next.length === nodes.length && next.every((node, index) => node === nodes[index])) return nodes;
+  return next;
+}
+
+export function applyCfPreferredToNodes(nodes: ParsedNode[], sources: unknown): ParsedNode[] {
+  // API 地址要等服务端解析，不能把 URL 写进节点 server
+  return syncCfPreferredNodes(nodes, cfPreferredSpecsFromSources(sources, { skipApiUrls: true }));
 }

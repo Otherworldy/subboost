@@ -21,6 +21,7 @@ import {
   type SubscriptionImportErrorInfo,
 } from "@subboost/core/subscription/import-error";
 import { stripImportedNodeControlFieldsFromList } from "@subboost/core/subscription/imported-node-controls";
+import { applyCfPreferredToNodes } from "@subboost/core/subscription/cf-preferred";
 import { tryNormalizeSubscriptionUrlInput } from "@subboost/core/subscription/url-input";
 import {
   getHealthCheckCacheConfigKey,
@@ -119,8 +120,12 @@ export function createSourceActions(set: SetState, get: GetState, setAndGenerate
       });
 
       if (removed.size === 0 && changedHealthConfig.size === 0) {
-        if (cfPreferredChanged) setAndGenerateConfig(() => ({ sources }));
-        else set({ sources });
+        if (cfPreferredChanged) {
+          setAndGenerateConfig((state) => ({
+            sources,
+            nodes: applyCfPreferredToNodes(state.nodes, sources),
+          }));
+        } else set({ sources });
         return;
       }
 
@@ -145,7 +150,7 @@ export function createSourceActions(set: SetState, get: GetState, setAndGenerate
 
         return {
           sources,
-          nodes: nextNodes,
+          nodes: applyCfPreferredToNodes(nextNodes, sources),
           listenerPorts: nextListenerPorts,
           dialerProxyGroups: nextDialerProxyGroups,
         };

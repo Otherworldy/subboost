@@ -295,4 +295,65 @@ describe("NodeManagementNodeList", () => {
     expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ title: "无法重命名该节点" }));
     expect(props.renameNode).not.toHaveBeenCalled();
   });
+
+  it("CF 副本的测活/排序/重命名作用在副本自己，不带动原节点", () => {
+    const original = {
+      name: "日本",
+      type: "vless",
+      server: "jp.example.com",
+      port: 443,
+      uuid: "u",
+      tls: true,
+      network: "ws",
+    } as ParsedNode;
+    const clone = {
+      ...original,
+      name: "日本-CF",
+      server: "1.1.1.1",
+      _cfPreferred: "clone",
+      _cfPreferredOf: "日本",
+    } as ParsedNode;
+    const props = makeProps({
+      nodes: [original, clone],
+      visibleNodes: [original, clone],
+      deletedMarkedNodes: [],
+      visibleDeletedMarkedNodes: [],
+      resolveNodeNameParts: vi.fn((node: ParsedNode) => ({
+        baseName: node.name,
+        tag: "",
+        canEditBase: true,
+      })),
+      nodeIndexByName: new Map([
+        [original.name, 0],
+        [clone.name, 1],
+      ]),
+    });
+    const html = renderToStaticMarkup(React.createElement(NodeManagementNodeList, props));
+    expect(html).toContain("CF 副本");
+    expect(html.match(/顺序:/g)?.length).toBe(2);
+
+    const buttons = collectElements(renderTree(props), (element) => typeof element.props.label === "string");
+    const labels = buttons.map((button) => button.props.label);
+    expect(labels.filter((label) => label === "测活该节点")).toHaveLength(2);
+    expect(labels.filter((label) => label === "重命名节点")).toHaveLength(2);
+    expect(labels.filter((label) => label === "删除节点")).toHaveLength(1);
+
+    const healthButtons = buttons.filter((button) => button.props.label === "测活该节点");
+    healthButtons[1].props.onClick();
+    expect(props.onHealthCheckNode).toHaveBeenCalledTimes(1);
+    expect(props.onHealthCheckNode).toHaveBeenCalledWith("日本-CF");
+
+    const renameButtons = buttons.filter((button) => button.props.label === "重命名节点");
+    renameButtons[1].props.onClick();
+    expect(props.setEditingNodeName).toHaveBeenCalledWith("日本-CF");
+    expect(props.setEditNodeValue).toHaveBeenCalledWith("日本-CF");
+
+    const moveDown = buttons.filter((button) => button.props.label === "下移节点");
+    moveDown[1].props.onClick();
+    expect(props.moveNode).toHaveBeenCalledWith("日本-CF", "down");
+
+    buttons.find((button) => button.props.label === "删除节点")?.props.onClick();
+    expect(props.removeNode).toHaveBeenCalledTimes(1);
+    expect(props.removeNode).toHaveBeenCalledWith("日本");
+  });
 });

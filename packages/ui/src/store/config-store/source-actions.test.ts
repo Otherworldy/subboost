@@ -87,6 +87,38 @@ describe("createSourceActions", () => {
     expect(getState().nodes.map((item: ParsedNode) => item.name)).toEqual(["Existing"]);
   });
 
+  it("开启 CF 优选时把副本写进节点列表，关掉则移除", () => {
+    const cfNode = {
+      name: "日本",
+      type: "vless",
+      server: "jp.example.com",
+      port: 443,
+      uuid: "u",
+      tls: true,
+      network: "ws",
+      _sourceIds: ["s1"],
+    } as unknown as ParsedNode;
+    const existing = source({ id: "s1", type: "url", content: "https://example.com/a" });
+    const { actions, getState } = createHarness({
+      sources: [existing],
+      nodes: [cfNode],
+    });
+
+    actions.setSources([
+      source({
+        id: "s1",
+        type: "url",
+        content: "https://example.com/a",
+        cfPreferred: { enabled: true, address: "1.1.1.1" },
+      }),
+    ]);
+    expect(getState().nodes.map((item: ParsedNode) => item.name)).toEqual(["日本", "日本-CF"]);
+    expect(getState().nodes[1].server).toBe("1.1.1.1");
+
+    actions.setSources([existing]);
+    expect(getState().nodes.map((item: ParsedNode) => item.name)).toEqual(["日本"]);
+  });
+
   it("invalidates cached health when source health settings change", () => {
     const existing = source({
       id: "s1",

@@ -24,6 +24,7 @@ import {
   partializeConfigState,
   prepareConfigDraftScope,
 } from "./config-store/persistence";
+import { applyCfPreferredToNodes } from "@subboost/core/subscription/cf-preferred";
 
 export {
   DEFAULT_BASE_CONFIG_YAML,
@@ -57,11 +58,19 @@ export const useConfigStore = create<ConfigState & ConfigActions>()(
           const patch = updater(state);
           if (patch === state) return state;
 
-          const next = { ...state, ...(patch as Partial<StoreState>) } as StoreState;
+          let nextPatch = patch as Partial<StoreState>;
+          const next = { ...state, ...nextPatch } as StoreState;
+          if (nextPatch.nodes !== undefined || nextPatch.sources !== undefined) {
+            const synced = applyCfPreferredToNodes(next.nodes, next.sources);
+            if (synced !== next.nodes) {
+              nextPatch = { ...nextPatch, nodes: synced };
+              next.nodes = synced;
+            }
+          }
           const { yaml, error } = computeGeneratedYamlResult(next);
 
-          if (yaml === next.generatedYaml && error === next.generatedYamlError) return patch as Partial<StoreState>;
-          return { ...(patch as Partial<StoreState>), generatedYaml: yaml, generatedYamlError: error };
+          if (yaml === next.generatedYaml && error === next.generatedYamlError) return nextPatch;
+          return { ...nextPatch, generatedYaml: yaml, generatedYamlError: error };
         });
       };
 

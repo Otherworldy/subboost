@@ -201,12 +201,12 @@ export function NodeManagementSection({
 
   const nodeIndexByName = React.useMemo(() => {
     const map = new Map<string, number>();
-    effectiveNodes.forEach((n, i) => map.set(n.name, i));
+    displayedNodes.forEach((n, i) => map.set(n.name, i));
     return map;
-  }, [effectiveNodes]);
-  const effectiveNodeNames = React.useMemo(
-    () => effectiveNodes.map((node) => node.name),
-    [effectiveNodes]
+  }, [displayedNodes]);
+  const displayedNodeNames = React.useMemo(
+    () => displayedNodes.map((node) => node.name),
+    [displayedNodes]
   );
 
   const visibleNodes = React.useMemo(() => {
@@ -224,12 +224,12 @@ export function NodeManagementSection({
       if (currentIndex === undefined || !Number.isFinite(order)) return;
       const targetIndex = Math.max(
         0,
-        Math.min(effectiveNodes.length - 1, Math.floor(order) - 1)
+        Math.min(displayedNodes.length - 1, Math.floor(order) - 1)
       );
       if (targetIndex === currentIndex) return;
-      setNodeOrder(nodeName, targetIndex + 1, effectiveNodeNames);
+      setNodeOrder(nodeName, targetIndex + 1, displayedNodeNames);
     },
-    [effectiveNodeNames, effectiveNodes.length, nodeIndexByName, setNodeOrder]
+    [displayedNodeNames, displayedNodes.length, nodeIndexByName, setNodeOrder]
   );
 
   const moveEffectiveNode = React.useCallback(
@@ -237,10 +237,10 @@ export function NodeManagementSection({
       const currentIndex = nodeIndexByName.get(nodeName);
       if (currentIndex === undefined) return;
       const nextIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
-      if (nextIndex < 0 || nextIndex >= effectiveNodes.length) return;
+      if (nextIndex < 0 || nextIndex >= displayedNodes.length) return;
       setEffectiveNodeOrder(nodeName, nextIndex + 1);
     },
-    [effectiveNodes.length, nodeIndexByName, setEffectiveNodeOrder]
+    [displayedNodes.length, nodeIndexByName, setEffectiveNodeOrder]
   );
 
   const visibleDeletedMarkedNodes = React.useMemo(() => {
