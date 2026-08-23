@@ -7,6 +7,7 @@
 import net from "node:net";
 import {
   isCfPreferredApiUrl,
+  normalizeCfPreferredAddresses,
   normalizeCfPreferredSourceConfig,
   type CfPreferredSpec,
 } from "@subboost/core/subscription/cf-preferred";
@@ -185,9 +186,16 @@ export async function prepareCfPreferredRules(
     const record = item as Record<string, unknown>;
     const id = typeof record.id === "string" ? record.id.trim() : "";
     const cfg = normalizeCfPreferredSourceConfig(record.cfPreferred);
-    if (!id || !cfg?.enabled || !cfg.address || out[id]) continue;
+    if (!id || !cfg?.enabled || out[id]) continue;
+    const mode = cfg.mode === "replace" ? "replace" : "clone";
+    const selected = normalizeCfPreferredAddresses(cfg.addresses);
+    if (selected.length > 0) {
+      out[id] = { address: selected[0], addresses: selected, mode };
+      continue;
+    }
+    if (!cfg.address) continue;
     const resolved = await resolveCfPreferredAddress(cfg.address, deps);
-    if (resolved) out[id] = { address: resolved, mode: cfg.mode === "replace" ? "replace" : "clone" };
+    if (resolved) out[id] = { address: resolved, mode };
   }
   return Object.keys(out).length > 0 ? out : undefined;
 }

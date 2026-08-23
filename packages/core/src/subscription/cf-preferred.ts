@@ -12,7 +12,30 @@ import { getNodeSourceIds } from "@subboost/core/subscription/node-source-state"
 /** Cloudflare 支持的 HTTPS 端口；不在白名单的端口不可能是 CF 入口 */
 export const CF_TLS_PORTS: ReadonlySet<number> = new Set([443, 2053, 2083, 2087, 2096, 8443]);
 
-export type CfPreferredSpec = { address: string; mode: CfPreferredMode };
+export type CfPreferredSpec = { address: string; addresses?: string[]; mode: CfPreferredMode };
+
+export const MAX_CF_PREFERRED_ADDRESSES = 8;
+
+export function normalizeCfPreferredAddresses(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (typeof item !== "string") continue;
+    const addr = item.trim();
+    if (!addr || isCfPreferredApiUrl(addr) || seen.has(addr)) continue;
+    seen.add(addr);
+    out.push(addr);
+    if (out.length >= MAX_CF_PREFERRED_ADDRESSES) break;
+  }
+  return out;
+}
+
+export function specAddresses(spec: CfPreferredSpec): string[] {
+  if (spec.addresses && spec.addresses.length > 0) return spec.addresses;
+  const address = typeof spec.address === "string" ? spec.address.trim() : "";
+  return address ? [address] : [];
+}
 
 const CDN_CAPABLE_TYPES: ReadonlySet<string> = new Set(["vmess", "vless", "trojan"]);
 const CDN_NETWORKS: ReadonlySet<string> = new Set(["ws", "grpc", "h2", "http", "xhttp"]);
@@ -94,10 +117,22 @@ function cloneTargetKey(node: ParsedNode): string {
   return getCfPreferredOf(node) ?? (node.name.endsWith("-CF") ? node.name.slice(0, -3) : node.name);
 }
 
+function nextCloneName(baseName: string, index: number, used: Set<string>): string {
+  const preferred = index === 0 ? `${baseName}-CF` : `${baseName}-CF${index + 1}`;
+  if (!used.has(preferred)) return preferred;
+  let n = 2;
+  let candidate = `${preferred}-${n}`;
+  while (used.has(candidate)) {
+    n += 1;
+    candidate = `${preferred}-${n}`;
+  }
+  return candidate;
+}
+
 /** 为单个套 CF 节点构建优选副本（原节点名加 -CF 后缀） */
-export function buildCfPreferredClone(node: ParsedNode, address: string): ParsedNode {
+export function buildCfPreferredClone(node: ParsedNode, address: string, name = `${node.name}-CF`): ParsedNode {
   const clone = rewriteCfServer(node, address);
-  clone.name = `${node.name}-CF`;
+  clone.name = name;
   clone[CF_PREFERRED_MARK_KEY] = "clone";
   clone[CF_PREFERRED_OF_KEY] = originKey(node);
   clone._originName = clone.name;
@@ -124,12 +159,14 @@ export function buildCfReplacedNode(node: ParsedNode, address: string): ParsedNo
 export function normalizeCfPreferredSourceConfig(value: unknown): CfPreferredSourceConfig | undefined {
   if (!isRecord(value)) return undefined;
   const address = typeof value.address === "string" ? value.address.trim() : "";
+  const addresses = normalizeCfPreferredAddresses(value.addresses);
   const mode: CfPreferredMode = value.mode === "replace" ? "replace" : "clone";
   const enabled = value.enabled === true;
-  if (!enabled && !address) return undefined;
+  if (!enabled && !address && addresses.length === 0) return undefined;
   return {
     ...(enabled ? { enabled: true } : {}),
     ...(address ? { address } : {}),
+    ...(addresses.length > 0 ? { addresses } : {}),
     ...(mode === "replace" ? { mode: "replace" as const } : {}),
   };
 }
@@ -150,9 +187,16 @@ export function cfPreferredSpecsFromSources(
     if (!isRecord(item)) continue;
     const id = typeof item.id === "string" ? item.id.trim() : "";
     const cfg = normalizeCfPreferredSourceConfig(item.cfPreferred);
-    if (!id || !cfg?.enabled || !cfg.address) continue;
+    if (!id || !cfg?.enabled) continue;
+    const selected = normalizeCfPreferredAddresses(cfg.addresses);
+    const mode: CfPreferredMode = cfg.mode === "replace" ? "replace" : "clone";
+    if (selected.length > 0) {
+      out[id] = { address: selected[0], addresses: selected, mode };
+      continue;
+    }
+    if (!cfg.address) continue;
     if (skipApiUrls && isCfPreferredApiUrl(cfg.address)) continue;
-    out[id] = { address: cfg.address, mode: cfg.mode === "replace" ? "replace" : "clone" };
+    out[id] = { address: cfg.address, mode };
   }
   return Object.keys(out).length > 0 ? out : undefined;
 }
@@ -183,25 +227,35 @@ export function expandCfPreferredNodes(
   rulesBySourceId: Record<string, CfPreferredSpec> | undefined,
 ): ParsedNode[] {
   if (!rulesBySourceId || Object.keys(rulesBySourceId).length === 0) return nodes;
-  const existingOf = new Set<string>();
-  const existingNames = new Set<string>();
-  for (const node of nodes) {
-    existingNames.add(node.name);
-    if (getCfPreferredMark(node) === "clone") existingOf.add(cloneTargetKey(node));
-  }
+  const existingNames = new Set(nodes.map((node) => node.name));
+  const consumed = new Set<ParsedNode>();
   return nodes.flatMap((node) => {
-    if (getCfPreferredMark(node) === "clone") return [node];
+    if (getCfPreferredMark(node) === "clone") return consumed.has(node) ? [] : [node];
     const spec = specForNode(node, rulesBySourceId);
     if (!spec || !isCfCdnNode(node)) return [node];
-    if (spec.mode === "replace") return [buildCfReplacedNode(node, spec.address)];
-    if (existingOf.has(originKey(node)) || existingOf.has(node.name) || existingNames.has(`${node.name}-CF`)) {
-      return [node];
-    }
-    const clone = buildCfPreferredClone(node, spec.address);
-    existingOf.add(originKey(node));
-    existingOf.add(node.name);
-    existingNames.add(clone.name);
-    return [node, clone];
+    const addrs = specAddresses(spec);
+    if (addrs.length === 0) return [node];
+    if (spec.mode === "replace") return [buildCfReplacedNode(node, addrs[0])];
+    const of = originKey(node);
+    const result: ParsedNode[] = [node];
+    addrs.forEach((addr, index) => {
+      const existing = nodes.find(
+        (candidate) =>
+          getCfPreferredMark(candidate) === "clone" &&
+          !consumed.has(candidate) &&
+          candidate.server === addr &&
+          (cloneTargetKey(candidate) === of || cloneTargetKey(candidate) === node.name),
+      );
+      if (existing) {
+        consumed.add(existing);
+        result.push(existing);
+        return;
+      }
+      const clone = buildCfPreferredClone(node, addr, nextCloneName(node.name, index, existingNames));
+      existingNames.add(clone.name);
+      result.push(clone);
+    });
+    return result;
   });
 }
 
@@ -211,6 +265,7 @@ export function syncCfPreferredNodes(
   rulesBySourceId: Record<string, CfPreferredSpec> | undefined,
 ): ParsedNode[] {
   const rules = rulesBySourceId ?? {};
+  const usedByOf = new Map<string, Set<string>>();
   const kept: ParsedNode[] = [];
   for (const node of nodes) {
     if (getCfPreferredMark(node) !== "clone") {
@@ -219,7 +274,22 @@ export function syncCfPreferredNodes(
     }
     const spec = specForNode(node, rules);
     if (!spec || spec.mode !== "clone") continue;
-    kept.push(withCloneAddress(node, spec.address));
+    const addrs = specAddresses(spec);
+    if (addrs.length === 0) continue;
+    const of = cloneTargetKey(node);
+    const used = usedByOf.get(of) ?? new Set<string>();
+    const server = node.server ?? "";
+    if (server && addrs.includes(server) && !used.has(server)) {
+      kept.push(node);
+      used.add(server);
+    } else {
+      const nextAddr = addrs.find((addr) => !used.has(addr));
+      if (nextAddr) {
+        kept.push(withCloneAddress(node, nextAddr));
+        used.add(nextAddr);
+      }
+    }
+    usedByOf.set(of, used);
   }
   const next = expandCfPreferredNodes(kept, Object.keys(rules).length > 0 ? rules : undefined);
   if (next.length === nodes.length && next.every((node, index) => node === nodes[index])) return nodes;

@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { Check, Loader2, Rocket, Trash2, Zap } from "lucide-react";
+import { MAX_CF_PREFERRED_ADDRESSES, normalizeCfPreferredAddresses } from "@subboost/core/subscription/cf-preferred";
 import type { CfPreferredSourceConfig } from "@subboost/core/types/config";
 import { getNodeSourceIds } from "@subboost/core/subscription/node-source-state";
 import { Badge } from "@subboost/ui/components/ui/badge";
@@ -47,6 +48,7 @@ export function CfPreferredSettings({
   const config = source.cfPreferred;
   const enabled = config?.enabled === true;
   const currentMode = config?.mode ?? "clone";
+  const selectedIps = normalizeCfPreferredAddresses(config?.addresses);
   const [preview, setPreview] = React.useState<PreviewState>(IDLE_PREVIEW);
   const previewAbort = React.useRef<AbortController | null>(null);
 
@@ -111,9 +113,18 @@ export function CfPreferredSettings({
     }
   }
 
-  const handleApplyIp = (ip: string) => {
-    updateConfig({ address: ip, enabled: true });
+  const toggleIp = (ip: string) => {
+    if (currentMode === "replace") {
+      updateConfig({ addresses: selectedIps[0] === ip ? [] : [ip], enabled: true });
+      return;
+    }
+    const next = selectedIps.includes(ip)
+      ? selectedIps.filter((item) => item !== ip)
+      : [...selectedIps, ip].slice(0, MAX_CF_PREFERRED_ADDRESSES);
+    updateConfig({ addresses: next, enabled: true });
   };
+
+  const isSelectedIp = (ip: string) => selectedIps.includes(ip);
 
   return (
     <div
@@ -178,7 +189,7 @@ export function CfPreferredSettings({
             <div className="space-y-1 rounded-md bg-white/5 p-2 text-[11px] text-white/60">
               <p>• <strong className="text-white/80">新增优选副本：</strong>保留原节点，额外生成「原名-CF」加速节点（推荐）。</p>
               <p>• <strong className="text-white/80">直接替换原节点：</strong>直接修改该源节点的连接 IP，不增加节点数量。</p>
-              <p>• <strong className="text-white/80">测速与选优：</strong>用 mihomo 测「换成候选 IP 后的节点」真实延迟，不是 TCP ping。</p>
+              <p>• <strong className="text-white/80">测速与选优：</strong>用 mihomo 测「换成候选 IP 后的节点」真实延迟，不是 TCP ping。新增副本模式可勾选多个 IP（最多 {MAX_CF_PREFERRED_ADDRESSES} 个）。</p>
               <p>• <strong className="text-white/80">API 自动跟随：</strong>填入 API 地址时，每次订阅刷新/下载会自动拉取最新最优 IP。</p>
             </div>
           </HelpPopover>
@@ -222,7 +233,7 @@ export function CfPreferredSettings({
                   )}
                 </div>
                 <p className="text-[11px] leading-relaxed text-white/45 group-hover:text-white/60">
-                  原节点原样保留，额外克隆一个带有「-CF」后缀的加速节点供选择。
+                  原节点原样保留，按勾选的优选 IP 各生成一条「-CF」副本。
                 </p>
               </button>
 
@@ -255,9 +266,11 @@ export function CfPreferredSettings({
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-medium text-white/60">优选入口（域名 / IP / 动态 API）</span>
-              {config?.address && /^https?:\/\//i.test(config.address) && (
+              {selectedIps.length > 0 ? (
+                <span className="text-[10px] text-amber-300/80">已选用 {selectedIps.length}/{MAX_CF_PREFERRED_ADDRESSES} 个入口</span>
+              ) : config?.address && /^https?:\/\//i.test(config.address) ? (
                 <span className="text-[10px] text-amber-300/80 font-mono">⚡ 订阅刷新时将自动拉取最优 IP</span>
-              )}
+              ) : null}
             </div>
 
             <div className="flex items-center gap-2">
@@ -290,6 +303,29 @@ export function CfPreferredSettings({
                 <span>{preview.loading ? "测速中..." : "测速与选优"}</span>
               </Button>
             </div>
+            {selectedIps.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                {selectedIps.map((ip) => (
+                  <button
+                    key={ip}
+                    type="button"
+                    title="取消选用"
+                    onClick={() => toggleIp(ip)}
+                    className="inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 font-mono text-[11px] text-amber-200 hover:bg-amber-500/20"
+                  >
+                    <span>{ip}</span>
+                    <span className="text-amber-300/70">×</span>
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className="text-[11px] text-white/35 hover:text-white/70"
+                  onClick={() => updateConfig({ addresses: [], enabled: true })}
+                >
+                  清空选用
+                </button>
+              </div>
+            )}
           </div>
 
           {/* 快捷预设源 */}
@@ -349,7 +385,7 @@ export function CfPreferredSettings({
                 <div className="flex items-center gap-1.5 text-xs text-white/70">
                   <span className="font-medium text-white">优选节点测速结果</span>
                   <span className="text-[11px] text-white/40">
-                    （已测 {preview.candidates.length} 个入口，按节点实测延迟排序）
+                    （已测 {preview.candidates.length} 个入口，按延迟排序，副本模式可多选）
                   </span>
                 </div>
                 <Button
@@ -375,8 +411,12 @@ export function CfPreferredSettings({
                   </thead>
                   <tbody className="divide-y divide-white/5">
                     {preview.candidates.map((c, i) => {
-                      const isCurrent = config?.address === c.ip;
+                      const isCurrent = isSelectedIp(c.ip);
                       const isFastest = i === 0 && c.ms !== null;
+                      const selectionFull =
+                        currentMode !== "replace" &&
+                        !isCurrent &&
+                        selectedIps.length >= MAX_CF_PREFERRED_ADDRESSES;
                       return (
                         <tr
                           key={c.ip}
@@ -395,7 +435,7 @@ export function CfPreferredSettings({
                               )}
                               {isCurrent && (
                                 <span className="rounded bg-amber-500/20 px-1 py-0.2 text-[9px] font-semibold text-amber-300">
-                                  当前使用
+                                  已选用
                                 </span>
                               )}
                             </div>
@@ -441,13 +481,13 @@ export function CfPreferredSettings({
                               className={cn(
                                 "h-6 px-2.5 text-[11px] font-medium transition-all",
                                 isCurrent
-                                  ? "border-amber-500/40 text-amber-300 bg-amber-500/10 cursor-default"
+                                  ? "border-amber-500/40 text-amber-300 bg-amber-500/10 hover:bg-rose-500/15 hover:text-rose-200 hover:border-rose-500/30"
                                   : "bg-white/10 hover:bg-emerald-500/20 hover:text-emerald-300 hover:border-emerald-500/30 text-white/80",
                               )}
-                              onClick={() => handleApplyIp(c.ip)}
-                              disabled={isCurrent}
+                              onClick={() => toggleIp(c.ip)}
+                              disabled={selectionFull}
                             >
-                              {isCurrent ? "已选" : "使用此 IP"}
+                              {isCurrent ? "取消" : selectionFull ? "已满" : currentMode === "replace" ? "使用此 IP" : "选用"}
                             </Button>
                           </td>
                         </tr>

@@ -213,10 +213,12 @@ export interface UserConfig {
 
 export type CfPreferredMode = "clone" | "replace";
 
-/** 挂在订阅源上的 CF 优选配置（开关 + 地址 + 新增副本/替换原节点） */
+/** 挂在订阅源上的 CF 优选配置（开关 + 地址 + 选用入口 + 新增副本/替换原节点） */
 export interface CfPreferredSourceConfig {
   enabled?: boolean;
   address?: string;
+  /** 测速后勾选的多个入口；为空则回退到 address */
+  addresses?: string[];
   mode?: CfPreferredMode;
 }
 

@@ -75,6 +75,17 @@ describe("normalizeCfPreferredSourceConfig / cfPreferredStaticBySource", () => {
       address: "cf.090227.xyz",
       mode: "replace",
     });
+    expect(
+      normalizeCfPreferredSourceConfig({
+        enabled: true,
+        address: "cf.090227.xyz",
+        addresses: [" 1.1.1.1 ", "1.1.1.1", "https://x", "2.2.2.2"],
+      }),
+    ).toEqual({
+      enabled: true,
+      address: "cf.090227.xyz",
+      addresses: ["1.1.1.1", "2.2.2.2"],
+    });
 
     const sources = [
       { id: "src-a", cfPreferred: { enabled: true, address: "cf.090227.xyz" } },
@@ -168,14 +179,23 @@ describe("buildCfPreferredClone", () => {
 });
 
 describe("expandCfPreferredNodes idempotent / syncCfPreferredNodes", () => {
-  it("已有副本时不再生成第二个", () => {
+  it("已有同入口副本时不再生成第二个", () => {
     const original = vlessWsTls();
     const clone = buildCfPreferredClone(original, "1.2.3.4");
-    const renamed = { ...clone, name: "香港加速" }  as unknown as ParsedNode;
-    const out = expandCfPreferredNodes([original, renamed], { "src-a": { address: "9.9.9.9", mode: "clone" } });
+    const renamed = { ...clone, name: "香港加速" } as unknown as ParsedNode;
+    const out = expandCfPreferredNodes([original, renamed], { "src-a": { address: "1.2.3.4", mode: "clone" } });
     expect(out).toHaveLength(2);
     expect(out[1].name).toBe("香港加速");
     expect(getCfPreferredOf(out[1])).toBe("香港 IEPL-01");
+  });
+
+  it("多个入口为每个 IP 生成一条副本", () => {
+    const out = expandCfPreferredNodes([vlessWsTls()], {
+      "src-a": { address: "1.1.1.1", addresses: ["1.1.1.1", "2.2.2.2"], mode: "clone" },
+    });
+    expect(out.map((n) => n.name)).toEqual(["香港 IEPL-01", "香港 IEPL-01-CF", "香港 IEPL-01-CF2"]);
+    expect(out[1].server).toBe("1.1.1.1");
+    expect(out[2].server).toBe("2.2.2.2");
   });
 
   it("关掉源时丢掉副本；改地址时只改入口并保留名字和测活", () => {
@@ -200,5 +220,17 @@ describe("expandCfPreferredNodes idempotent / syncCfPreferredNodes", () => {
     ]);
     expect(out.map((n) => n.name)).toEqual(["香港 IEPL-01", "香港 IEPL-01-CF"]);
     expect(out[1].server).toBe("1.1.1.1");
+  });
+
+  it("applyCfPreferredToNodes 按勾选的多个入口补副本", () => {
+    const out = applyCfPreferredToNodes([vlessWsTls()], [
+      {
+        id: "src-a",
+        cfPreferred: { enabled: true, address: "https://cf.example.com/ct", addresses: ["1.1.1.1", "8.8.8.8"] },
+      },
+    ]);
+    expect(out.map((n) => n.name)).toEqual(["香港 IEPL-01", "香港 IEPL-01-CF", "香港 IEPL-01-CF2"]);
+    expect(out[1].server).toBe("1.1.1.1");
+    expect(out[2].server).toBe("8.8.8.8");
   });
 });

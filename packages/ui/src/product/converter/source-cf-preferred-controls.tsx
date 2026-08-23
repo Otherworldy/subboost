@@ -1,6 +1,7 @@
 "use client";
 
 import { Zap } from "lucide-react";
+import { normalizeCfPreferredAddresses } from "@subboost/core/subscription/cf-preferred";
 import type { CfPreferredSourceConfig } from "@subboost/core/types/config";
 import type { SubscriptionSource } from "@subboost/ui/store/config-store";
 import { cn } from "@subboost/ui/lib/utils";
@@ -11,10 +12,12 @@ export function defaultCfPreferredConfig(
   current?: CfPreferredSourceConfig,
   enabled = true,
 ): CfPreferredSourceConfig {
+  const addresses = normalizeCfPreferredAddresses(current?.addresses);
   return {
     enabled,
     address: current?.address?.trim() || DEFAULT_ADDRESS,
     mode: current?.mode === "replace" ? "replace" : "clone",
+    ...(addresses.length > 0 ? { addresses } : {}),
   };
 }
 
@@ -31,10 +34,11 @@ export function SourceCfPreferredControls({
 }) {
   const enabled = source.cfPreferred?.enabled === true;
   const address = source.cfPreferred?.address?.trim() || DEFAULT_ADDRESS;
+  const selectedCount = normalizeCfPreferredAddresses(source.cfPreferred?.addresses).length;
   const modeText = source.cfPreferred?.mode === "replace" ? "直接替换" : "新增副本";
 
   const tooltip = enabled
-    ? `CF 优选已开启：${address} (${modeText}) · 点击停用`
+    ? `CF 优选已开启：${selectedCount > 0 ? `${selectedCount} 个入口` : address} (${modeText}) · 点击停用`
     : "点击开启 CF 优选加速（高级编辑中可自定义地址与模式）";
 
   return (

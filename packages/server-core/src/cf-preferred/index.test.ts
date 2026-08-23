@@ -115,4 +115,22 @@ describe("resolveCfPreferredAddress / prepareCfPreferredRules", () => {
       "src-b": { address: "104.16.9.9", mode: "replace" },
     });
   });
+
+  it("prepareCfPreferredRules：已勾选入口时不再解析 API", async () => {
+    const mapped = await prepareCfPreferredRules({
+      sources: [
+        {
+          id: "src-a",
+          cfPreferred: {
+            enabled: true,
+            address: "https://api/c",
+            addresses: ["1.1.1.1", "2.2.2.2"],
+          },
+        },
+      ],
+    }, { fetchImpl: fetchReturning("104.16.9.9") });
+    expect(mapped).toEqual({
+      "src-a": { address: "1.1.1.1", addresses: ["1.1.1.1", "2.2.2.2"], mode: "clone" },
+    });
+  });
 });
