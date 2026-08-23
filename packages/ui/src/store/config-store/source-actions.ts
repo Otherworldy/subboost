@@ -113,8 +113,14 @@ export function createSourceActions(set: SetState, get: GetState, setAndGenerate
           .map((source) => source.id)
       );
 
+      const cfPreferredChanged = sources.some((source) => {
+        const previous = prevById.get(source.id);
+        return Boolean(previous && JSON.stringify(previous.cfPreferred) !== JSON.stringify(source.cfPreferred));
+      });
+
       if (removed.size === 0 && changedHealthConfig.size === 0) {
-        set({ sources });
+        if (cfPreferredChanged) setAndGenerateConfig(() => ({ sources }));
+        else set({ sources });
         return;
       }
 

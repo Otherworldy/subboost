@@ -100,8 +100,10 @@ vi.mock("lucide-react", () => ({
   Maximize2: () => null,
   Menu: () => null,
   Plus: () => null,
+  Rocket: () => null,
   Server: () => null,
   X: () => null,
+  Zap: () => null,
 }));
 vi.mock("@subboost/ui/components/ui/badge", () => ({ Badge: (props: any) => props.children }));
 vi.mock("@subboost/ui/components/ui/button", () => ({

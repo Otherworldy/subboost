@@ -20,6 +20,7 @@ import { Input } from "@subboost/ui/components/ui/input";
 import { Switch } from "@subboost/ui/components/ui/switch";
 import { Textarea } from "@subboost/ui/components/ui/textarea";
 import type { SubscriptionSource } from "@subboost/ui/store/config-store";
+import { CfPreferredSettings } from "./source-cf-preferred-settings";
 import { sourceTypeInfo } from "./source-type-info";
 
 export type SourceEditorDialogProps = {
@@ -315,6 +316,7 @@ export function SourceEditorDialog({
             </div>
 
             <HealthCheckSettings source={source} onUpdateMeta={onUpdateMeta} />
+            <CfPreferredSettings source={source} onUpdateMeta={onUpdateMeta} />
           </div>
         ) : null}
 

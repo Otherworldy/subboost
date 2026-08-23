@@ -9,6 +9,7 @@ import { ensureCustomRulesHaveIds } from "@subboost/core/rules/custom-rule-utils
 import { normalizeRuleModelFromConfig } from "@subboost/core/rules/rule-model";
 import { resolveProxyGroupAdvancedModeEnabled } from "@subboost/core/proxy-group-advanced-mode";
 import { normalizeProxyGroupAdvancedConfig } from "@subboost/core/proxy-group-advanced";
+import { normalizeCfPreferredSourceConfig } from "@subboost/core/subscription/cf-preferred";
 import { tryNormalizeSubscriptionUrlInput } from "@subboost/core/subscription/url-input";
 import { normalizeSourceHealthCheck } from "@subboost/core/subscription/node-health";
 import {
@@ -152,6 +153,7 @@ export function useEditingSubscriptionLoader({
               const userinfoUserAgent = (item as any).userinfoUserAgent;
               const subscriptionUserInfo = normalizeSubscriptionUserInfo((item as any).subscriptionUserInfo);
               const healthCheck = normalizeSourceHealthCheck((item as any).healthCheck);
+              const cfPreferred = normalizeCfPreferredSourceConfig((item as any).cfPreferred);
               const lastParsedTag = (item as any).lastParsedTag;
               const lastParsedNameTemplate = (item as any).lastParsedNameTemplate;
               const normalizedContent =
@@ -176,6 +178,7 @@ export function useEditingSubscriptionLoader({
                 nameTemplate: typeof nameTemplate === "string" && nameTemplate.trim() ? nameTemplate.trim() : undefined,
                 subscriptionUserInfo: hasSubscriptionUserInfo(subscriptionUserInfo) ? subscriptionUserInfo : undefined,
                 healthCheck,
+                cfPreferred,
                 useProxyProviders: t === "url" && useProxyProviders === true ? true : undefined,
                 userinfoUrl: normalizedUserinfoUrl,
                 userinfoUserAgent:
@@ -198,6 +201,7 @@ export function useEditingSubscriptionLoader({
               nameTemplate?: string;
               subscriptionUserInfo?: SubscriptionUserInfo;
               healthCheck?: ReturnType<typeof normalizeSourceHealthCheck>;
+              cfPreferred?: ReturnType<typeof normalizeCfPreferredSourceConfig>;
               useProxyProviders?: boolean;
               userinfoUrl?: string;
               userinfoUserAgent?: string;
@@ -266,6 +270,7 @@ export function useEditingSubscriptionLoader({
               ...(hasSubscriptionUserInfo(s.subscriptionUserInfo) ? { subscriptionUserInfo: s.subscriptionUserInfo } : {}),
               ...(s.type === "url" && s.useProxyProviders ? { useProxyProviders: true } : {}),
               ...(s.healthCheck ? { healthCheck: s.healthCheck } : {}),
+              ...(s.cfPreferred ? { cfPreferred: s.cfPreferred } : {}),
               ...(s.type === "url" && typeof s.userinfoUrl === "string" && s.userinfoUrl.trim()
                 ? { userinfoUrl: tryNormalizeSubscriptionUrlInput(s.userinfoUrl) ?? s.userinfoUrl.trim() }
                 : {}),
@@ -319,6 +324,7 @@ export function useEditingSubscriptionLoader({
           return current.map((s) => {
             const subscriptionUserInfo = normalizeSubscriptionUserInfo(s.subscriptionUserInfo);
             const healthCheck = normalizeSourceHealthCheck(s.healthCheck);
+            const cfPreferred = normalizeCfPreferredSourceConfig(s.cfPreferred);
             return {
               id: s.id,
               type: s.type,
@@ -328,6 +334,7 @@ export function useEditingSubscriptionLoader({
               ...(hasSubscriptionUserInfo(subscriptionUserInfo) ? { subscriptionUserInfo } : {}),
               ...(s.type === "url" && s.useProxyProviders ? { useProxyProviders: true } : {}),
               ...(healthCheck ? { healthCheck } : {}),
+              ...(cfPreferred ? { cfPreferred } : {}),
               ...(s.type === "url" && typeof s.userinfoUrl === "string" && s.userinfoUrl.trim()
                 ? { userinfoUrl: tryNormalizeSubscriptionUrlInput(s.userinfoUrl) ?? s.userinfoUrl.trim() }
                 : {}),

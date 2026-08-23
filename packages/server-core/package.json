@@ -10,6 +10,8 @@
     "./cron-auth": "./src/cron-auth.ts",
     "./crypto": "./src/crypto/index.ts",
     "./crypto/*": "./src/crypto/*.ts",
+    "./cf-preferred": "./src/cf-preferred/index.ts",
+    "./cf-preferred/*": "./src/cf-preferred/*.ts",
     "./http": "./src/http.ts",
     "./rules": "./src/rules/index.ts",
     "./rules/*": "./src/rules/*.ts",

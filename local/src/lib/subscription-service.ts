@@ -34,6 +34,7 @@ import {
   type RefreshNodeSnapshotResult,
 } from "@subboost/server-core/subscription";
 import { decryptJson, decryptJsonObject, encryptJson } from "./crypto";
+import { prepareCfPreferredRules } from "@subboost/server-core/cf-preferred";
 import { getAppUrl } from "./env";
 import { prisma } from "./prisma";
 import { fetchSourceUserInfoHeadersDirect, importSourceUrlDirect } from "./source-import";
@@ -762,7 +763,7 @@ export async function refreshSubscription(
     ...buildSubscriptionFetchCallbacks("interactive"),
     ...(onProgress ? { onHealthProgress: onProgress } : {}),
   });
-  const refreshResult = prepareRefreshCacheResult({
+  const refreshResult = await prepareRefreshCacheResult({
     config: secrets.config,
     snapshot,
     maxNodesPerSubscription: MAX_NODES_PER_SUBSCRIPTION,
@@ -886,6 +887,8 @@ export async function generateSubscriptionYaml(token: string): Promise<Generated
   const options = buildGenerateOptionsFromConfig(secrets.config, {
     nodes: secrets.nodes,
     proxyProviders,
+    // CF 优选规则在此解析为最新 IP（带 TTL 缓存与失败回退）
+    cfPreferredBySource: await prepareCfPreferredRules(secrets.config),
   });
   const yaml = generateClashYaml(options);
   await recordSubscriptionAccess(row.id, new Date());

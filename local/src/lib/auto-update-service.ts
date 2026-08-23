@@ -100,7 +100,7 @@ async function prepareLocalRefresh(
     snapshot,
     failedAt: attemptedAt,
   });
-  const refreshResult = prepareRefreshCacheResult({
+  const refreshResult = await prepareRefreshCacheResult({
     config: secrets.config,
     snapshot,
     maxNodesPerSubscription: MAX_NODES_PER_SUBSCRIPTION,

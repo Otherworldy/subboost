@@ -20,11 +20,16 @@ vi.mock("@radix-ui/react-popover", () => ({
   Trigger: (props: any) => React.createElement("div", null, props.children),
 }));
 vi.mock("lucide-react", () => ({
+  Check: () => React.createElement("span", null, "check-icon"),
   CircleHelp: () => React.createElement("span", null, "circle-help-icon"),
   FileCode: () => React.createElement("span", null, "file-code-icon"),
   HelpCircle: () => React.createElement("span", null, "help-icon"),
   Link2: () => React.createElement("span", null, "link-icon"),
+  Loader2: () => React.createElement("span", null, "loader-icon"),
+  Rocket: () => React.createElement("span", null, "rocket-icon"),
   Server: () => React.createElement("span", null, "server-icon"),
+  Trash2: () => React.createElement("span", null, "trash-icon"),
+  Zap: () => React.createElement("span", null, "zap-icon"),
 }));
 vi.mock("@subboost/ui/components/ui/button", () => ({
   Button: (props: any) => {

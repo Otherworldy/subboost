@@ -3,6 +3,8 @@ import {
   normalizeSourceHealthCheck,
   type SourceHealthCheckConfig,
 } from "@subboost/core/subscription/node-health";
+import { normalizeCfPreferredSourceConfig } from "@subboost/core/subscription/cf-preferred";
+import type { CfPreferredSourceConfig } from "@subboost/core/types/config";
 import {
   hasSubscriptionUserInfo,
   normalizeSubscriptionUserInfo,
@@ -26,6 +28,8 @@ export type SavedSource = {
   lastParsedNameTemplate?: string;
   // 自动测活设置；proxy-providers 模式不保存（节点不进入 SubBoost，无法测活）
   healthCheck?: SourceHealthCheckConfig;
+  // CF 优选：按源开关，与测活无关，proxy-providers 模式同样可配（生成时对该源节点生效；provider 模式无本地节点则无效果）
+  cfPreferred?: CfPreferredSourceConfig;
 };
 
 export type NormalizeSavedSourcesForPersistenceOptions = {
@@ -93,6 +97,7 @@ export function normalizeSavedSourcesForPersistence(
     const lastParsedNameTemplate = toTrimmedString(record.lastParsedNameTemplate);
     const useProxyProviders = type === "url" && record.useProxyProviders === true;
     const healthCheck = normalizeSourceHealthCheck(record.healthCheck);
+    const cfPreferred = normalizeCfPreferredSourceConfig(record.cfPreferred);
 
     return {
       id: nextId(preferredId),
@@ -111,6 +116,7 @@ export function normalizeSavedSourcesForPersistence(
       ...(lastParsedNameTemplate ? { lastParsedNameTemplate } : {}),
       // proxy-providers 模式下节点不进入 SubBoost，测活设置一并清除
       ...(!useProxyProviders && healthCheck ? { healthCheck } : {}),
+      ...(cfPreferred ? { cfPreferred } : {}),
     };
   };
 

@@ -1,4 +1,5 @@
 import { generateClashYaml } from "@subboost/core/generator";
+import { cfPreferredStaticBySource, expandCfPreferredNodes } from "@subboost/core/subscription/cf-preferred";
 import { stripImportedNodeControlFieldsFromList } from "@subboost/core/subscription/imported-node-controls";
 import { filterNodesByHealth } from "@subboost/core/subscription/node-health";
 import { resolveNodeNameFilter } from "@subboost/core/subscription/node-name-filter";
@@ -57,7 +58,10 @@ function buildGenerateClashYamlOptions(
   effectiveNodes: ParsedNode[]
 ): GenerateClashYamlOptions {
   return {
-    nodes: stripImportedNodeControlFieldsFromList(effectiveNodes),
+    nodes: expandCfPreferredNodes(
+      stripImportedNodeControlFieldsFromList(effectiveNodes),
+      cfPreferredStaticBySource({ sources: state.sources }),
+    ),
     proxyProviders,
     template: state.template,
     userConfig: {

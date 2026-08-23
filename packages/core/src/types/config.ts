@@ -208,6 +208,16 @@ export interface UserConfig {
 
   // 为指定节点生成 listeners（key=节点名，value=端口）
   listenerPorts?: Record<string, number>;
+
+}
+
+export type CfPreferredMode = "clone" | "replace";
+
+/** 挂在订阅源上的 CF 优选配置（开关 + 地址 + 新增副本/替换原节点） */
+export interface CfPreferredSourceConfig {
+  enabled?: boolean;
+  address?: string;
+  mode?: CfPreferredMode;
 }
 
 export interface CustomRule {

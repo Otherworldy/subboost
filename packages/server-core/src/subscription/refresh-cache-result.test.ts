@@ -30,9 +30,9 @@ function snapshot(patch: Partial<RefreshNodeSnapshotResult> = {}): RefreshNodeSn
 }
 
 describe("prepareRefreshCacheResult", () => {
-  it("keeps previous cache when every refreshable source failed", () => {
+  it("keeps previous cache when every refreshable source failed", async () => {
     expect(
-      prepareRefreshCacheResult({
+      await prepareRefreshCacheResult({
         config: {},
         snapshot: snapshot({
           refreshableSourceCount: 2,
@@ -48,9 +48,9 @@ describe("prepareRefreshCacheResult", () => {
     });
   });
 
-  it("rejects empty snapshots unless proxy providers can still generate output", () => {
+  it("rejects empty snapshots unless proxy providers can still generate output", async () => {
     expect(
-      prepareRefreshCacheResult({
+      await prepareRefreshCacheResult({
         config: {},
         snapshot: snapshot({ nodes: [] }),
         maxNodesPerSubscription: 10,
@@ -61,7 +61,7 @@ describe("prepareRefreshCacheResult", () => {
       nodeCount: 0,
     });
 
-    const providerOnly = prepareRefreshCacheResult({
+    const providerOnly = await prepareRefreshCacheResult({
       config: { enabledGroups: ["select", "final"], enabledRules: ["final"] },
       snapshot: snapshot({ nodes: [] }),
       maxNodesPerSubscription: 10,
@@ -81,7 +81,7 @@ describe("prepareRefreshCacheResult", () => {
     expect(providerOnly.cacheEntry.nodes).toEqual([]);
 
     expect(
-      prepareRefreshCacheResult({
+      await prepareRefreshCacheResult({
         config: {},
         snapshot: snapshot({ nodes: [] }),
         maxNodesPerSubscription: 10,
@@ -93,8 +93,8 @@ describe("prepareRefreshCacheResult", () => {
     });
   });
 
-  it("keeps the raw cache snapshot but rejects refreshes with no effective nodes", () => {
-    const filtered = prepareRefreshCacheResult({
+  it("keeps the raw cache snapshot but rejects refreshes with no effective nodes", async () => {
+    const filtered = await prepareRefreshCacheResult({
       config: {
         nodeNameFilter: {
           enabled: true,
@@ -112,13 +112,13 @@ describe("prepareRefreshCacheResult", () => {
     });
   });
 
-  it("saves snapshots where automatic health checks rejected every node", () => {
+  it("saves snapshots where automatic health checks rejected every node", async () => {
     const healthFailedNode = {
       ...node,
       _sourceIds: ["auto"],
       _health: { auto: { status: "fail", checkedAt: "2026-06-01T00:00:00.000Z" } },
     } as ParsedNode;
-    const result = prepareRefreshCacheResult({
+    const result = await prepareRefreshCacheResult({
       config: {
         sources: [
           { id: "auto", type: "url", content: "https://example.com/a", healthCheck: { enabled: true } },
@@ -137,8 +137,8 @@ describe("prepareRefreshCacheResult", () => {
     expect(result.generatedYaml).not.toContain("node-a.example.com");
   });
 
-  it("allows provider output when all raw nodes are excluded and caches the raw snapshot", () => {
-    const filtered = prepareRefreshCacheResult({
+  it("allows provider output when all raw nodes are excluded and caches the raw snapshot", async () => {
+    const filtered = await prepareRefreshCacheResult({
       config: {
         nodeNameFilter: {
           enabled: true,
@@ -164,9 +164,9 @@ describe("prepareRefreshCacheResult", () => {
     expect(filtered.generatedYaml).not.toContain("node-a.example.com");
   });
 
-  it("enforces node quota before generating YAML", () => {
+  it("enforces node quota before generating YAML", async () => {
     expect(
-      prepareRefreshCacheResult({
+      await prepareRefreshCacheResult({
         config: {},
         snapshot: snapshot({ nodes: [node, { ...node, name: "node-b" }] }),
         maxNodesPerSubscription: 1,
@@ -179,7 +179,7 @@ describe("prepareRefreshCacheResult", () => {
     });
 
     expect(
-      prepareRefreshCacheResult({
+      await prepareRefreshCacheResult({
         config: {
           nodeNameFilter: {
             enabled: true,
@@ -197,8 +197,8 @@ describe("prepareRefreshCacheResult", () => {
     });
   });
 
-  it("returns cache entries with generated YAML for valid snapshots", () => {
-    const result = prepareRefreshCacheResult({
+  it("returns cache entries with generated YAML for valid snapshots", async () => {
+    const result = await prepareRefreshCacheResult({
       config: {
         testUrl: "https://probe.example.com/204",
         testInterval: 120,
@@ -227,8 +227,8 @@ describe("prepareRefreshCacheResult", () => {
     });
   });
 
-  it("rejects invalid persisted filters before publishing refresh output", () => {
-    expect(() =>
+  it("rejects invalid persisted filters before publishing refresh output", async () => {
+    await expect(
       prepareRefreshCacheResult({
         config: {
           nodeNameFilter: {
@@ -239,6 +239,6 @@ describe("prepareRefreshCacheResult", () => {
         snapshot: snapshot(),
         maxNodesPerSubscription: 10,
       })
-    ).toThrow("节点名称过滤配置无效");
+    ).rejects.toThrow("节点名称过滤配置无效");
   });
 });

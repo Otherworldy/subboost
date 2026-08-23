@@ -6,6 +6,7 @@ import {
 import { filterNodesByHealth } from "@subboost/core/subscription/node-health";
 import { buildProxyProvidersFromConfig } from "@subboost/core/subscription/proxy-providers";
 import { resolveNodeNameFilter } from "@subboost/core/subscription/node-name-filter";
+import { prepareCfPreferredRules } from "../cf-preferred";
 import type { ParsedNode } from "@subboost/core/types/node";
 import type { SubscriptionResponseInfo } from "@subboost/core/subscription/subscription-response-info";
 import type { RefreshNodeSnapshotResult } from "./refresh-node-snapshot";
@@ -41,12 +42,12 @@ export type PreparedRefreshCacheResult =
       maxNodesPerSubscription?: number;
     };
 
-export function prepareRefreshCacheResult(params: {
+export async function prepareRefreshCacheResult(params: {
   config: Record<string, unknown>;
   snapshot: RefreshNodeSnapshotResult;
   maxNodesPerSubscription: number;
   proxyProviders?: Record<string, unknown>;
-}): PreparedRefreshCacheResult {
+}): Promise<PreparedRefreshCacheResult> {
   const { testUrl, testInterval } = getEffectiveTestOptions(params.config);
   const proxyProviders =
     params.proxyProviders ??
@@ -105,6 +106,8 @@ export function prepareRefreshCacheResult(params: {
       // 共享生成入口内部会再次按测活状态过滤并剥离内部字段
       nodes: params.snapshot.nodes,
       proxyProviders,
+      // CF 优选规则在此解析为最新 IP（带 TTL 缓存与失败回退）
+      cfPreferredBySource: await prepareCfPreferredRules(params.config),
     })
   );
 

@@ -9,6 +9,7 @@ import { cn } from "@subboost/ui/lib/utils";
 import { buildSourceDisplayLabel } from "@subboost/ui/product/converter/source-display-label";
 import { AddSourceMenu, SourceStatusPopover, SourceTypeChoices } from "@subboost/ui/product/converter/source-controls";
 import { useSubscriptionSourcesController } from "@subboost/ui/product/converter/use-subscription-sources-controller";
+import { SourceCfPreferredControls } from "@subboost/ui/product/converter/source-cf-preferred-controls";
 import { SourceHealthControls } from "@subboost/ui/product/converter/source-health-controls";
 import { sourceTypeInfo } from "../constants";
 import { SectionHeader } from "../section-header";
@@ -127,6 +128,10 @@ export function InputSection({
                     )}
                   </div>
                   <div className="flex items-center gap-0.5">
+                    <SourceCfPreferredControls
+                      source={source}
+                      onToggle={(cfPreferred) => updateSourceMeta(source.id, { cfPreferred })}
+                    />
                     <SourceHealthControls
                       source={source}
                       checking={healthCheckingSourceId === source.id}

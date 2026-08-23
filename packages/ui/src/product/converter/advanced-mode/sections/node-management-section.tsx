@@ -10,6 +10,10 @@ import { SwitchField } from "@subboost/ui/components/ui/switch-field";
 import { toast } from "@subboost/ui/components/ui/toaster";
 import { DEFAULT_NODE_NAME_TEMPLATE } from "@subboost/core/node-name-template";
 import {
+  cfPreferredSpecsFromSources,
+  expandCfPreferredNodes,
+} from "@subboost/core/subscription/cf-preferred";
+import {
   DEFAULT_NODE_NAME_FILTER_CONFIG,
   resolveNodeNameFilter,
 } from "@subboost/core/subscription/node-name-filter";
@@ -85,6 +89,14 @@ export function NodeManagementSection({
     [nodes, normalizedNodeNameFilter]
   );
   const effectiveNodes = nodeNameFilterResult.effectiveNodes;
+  const displayedNodes = React.useMemo(
+    () =>
+      expandCfPreferredNodes(
+        effectiveNodes,
+        cfPreferredSpecsFromSources(sources, { skipApiUrls: false }),
+      ),
+    [effectiveNodes, sources],
+  );
   const hasProxyProviders = React.useMemo(
     () => sources.some(canGenerateProxyProvider),
     [sources]
@@ -199,9 +211,12 @@ export function NodeManagementSection({
 
   const visibleNodes = React.useMemo(() => {
     const keyword = nodeSearchKeyword.trim().toLowerCase();
-    if (!keyword) return effectiveNodes;
-    return effectiveNodes.filter((node) => node.name.toLowerCase().includes(keyword));
-  }, [effectiveNodes, nodeSearchKeyword]);
+    if (!keyword) return displayedNodes;
+    return displayedNodes.filter((node) => {
+      const server = typeof node.server === "string" ? node.server : "";
+      return node.name.toLowerCase().includes(keyword) || server.toLowerCase().includes(keyword);
+    });
+  }, [displayedNodes, nodeSearchKeyword]);
 
   const setEffectiveNodeOrder = React.useCallback(
     (nodeName: string, order: number) => {
@@ -475,9 +490,9 @@ export function NodeManagementSection({
         onToggle={onToggle}
         badge={
           <div className="ml-auto flex items-center gap-2">
-            {effectiveNodes.length > 0 ? (
+            {displayedNodes.length > 0 ? (
               <Badge variant="outline" className="border-green-500/50 bg-green-500/10 text-green-300">
-                {effectiveNodes.length} 个节点
+                {displayedNodes.length} 个节点
               </Badge>
             ) : (
               <Badge variant="secondary">无节点</Badge>
@@ -565,7 +580,7 @@ export function NodeManagementSection({
           />
 
           <NodeManagementNodeList
-            nodes={effectiveNodes}
+            nodes={displayedNodes}
             deletedMarkedNodes={deletedMarkedNodes}
             visibleNodes={visibleNodes}
             visibleDeletedMarkedNodes={visibleDeletedMarkedNodes}

@@ -14,6 +14,11 @@ import {
   type UserConfig,
 } from "@subboost/core/types/config";
 import { stripImportedNodeControlFieldsFromList } from "@subboost/core/subscription/imported-node-controls";
+import {
+  cfPreferredStaticBySource,
+  expandCfPreferredNodes,
+  type CfPreferredSpec,
+} from "@subboost/core/subscription/cf-preferred";
 import { filterNodesByHealth } from "@subboost/core/subscription/node-health";
 import { buildProxyProvidersFromConfig } from "@subboost/core/subscription/proxy-providers";
 import { resolveNodeNameFilter } from "@subboost/core/subscription/node-name-filter";
@@ -275,6 +280,8 @@ export function buildGenerateOptionsFromConfig(
   opts: {
     nodes: ParsedNode[];
     proxyProviders?: Record<string, unknown>;
+    /** 已解析的 CF 优选规则（服务端拉取 API 后传入）；不传则读 config，遇 API URL 不展开 */
+    cfPreferredBySource?: Record<string, CfPreferredSpec> | null;
   }
 ): GenerateOptions {
   const config = rawConfig;
@@ -347,6 +354,10 @@ export function buildGenerateOptionsFromConfig(
   const effectiveNodes = resolveNodeNameFilter(healthFilteredNodes, config.nodeNameFilter).effectiveNodes;
   const groupListeners = normalizeGroupListeners(config.groupListeners);
   const sanitizedNodes = stripImportedNodeControlFieldsFromList(effectiveNodes);
+  // CF 优选：服务端已解析的规则优先；否则读 config（API URL 无法在此解析，跳过）
+  const cfPreferredBySource =
+    opts.cfPreferredBySource !== undefined ? opts.cfPreferredBySource : cfPreferredStaticBySource(config);
+  const finalNodes = expandCfPreferredNodes(sanitizedNodes, cfPreferredBySource ?? undefined);
   const proxyGroupAdvanced = isRecord(config.proxyGroupAdvanced)
     ? Object.fromEntries(
         Object.entries(config.proxyGroupAdvanced)
@@ -356,7 +367,7 @@ export function buildGenerateOptionsFromConfig(
     : undefined;
 
   return {
-    nodes: sanitizedNodes,
+    nodes: finalNodes,
     ...(proxyProviders ? { proxyProviders } : {}),
     template,
     userConfig,

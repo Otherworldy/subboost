@@ -225,4 +225,35 @@ describe("normalizeSavedSourcesForPersistence", () => {
       },
     ]);
   });
+
+  it("persists per-source CF preferred config", () => {
+    expect(
+      normalizeSavedSourcesForPersistence([
+        {
+          id: "src-cf",
+          type: "url",
+          content: "https://example.com/sub",
+          cfPreferred: { enabled: true, address: " cf.090227.xyz ", mode: "replace" },
+        },
+        {
+          id: "src-off",
+          type: "nodes",
+          content: "ss://x",
+          cfPreferred: { enabled: false },
+        },
+      ])
+    ).toEqual([
+      {
+        id: "src-cf",
+        type: "url",
+        content: "https://example.com/sub",
+        cfPreferred: { enabled: true, address: "cf.090227.xyz", mode: "replace" },
+      },
+      {
+        id: "src-off",
+        type: "nodes",
+        content: "ss://x",
+      },
+    ]);
+  });
 });

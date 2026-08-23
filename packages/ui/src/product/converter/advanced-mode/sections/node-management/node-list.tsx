@@ -8,6 +8,7 @@ import { Input } from "@subboost/ui/components/ui/input";
 import { ProtocolBadge } from "@subboost/ui/components/ui/protocol-badge";
 import { toast } from "@subboost/ui/components/ui/toaster";
 import { formatNodeNameFromTemplate } from "@subboost/core/node-name-template";
+import { getCfPreferredMark } from "@subboost/core/subscription/cf-preferred";
 import { summarizeNodeHealth } from "@subboost/core/subscription/node-health";
 import { cn } from "@subboost/ui/lib/utils";
 import type { ParsedNode } from "@subboost/core/types/node";
@@ -99,6 +100,13 @@ export function NodeManagementNodeList({
                   ? String(record[ORIGIN_NAME_KEY]).trim()
                   : "";
                 const isRenamed = originName && originName !== parts.baseName;
+                const cfMark = getCfPreferredMark(node);
+                const isCfClone = cfMark === "clone";
+                const storedName =
+                  isCfClone && node.name.endsWith("-CF") ? node.name.slice(0, -3) : node.name;
+                const cfTitle = cfMark
+                  ? `${cfMark === "clone" ? "CF 优选副本" : "CF 优选已替换入口"}: ${node.server}`
+                  : undefined;
 
                 const commitRename = () => {
                   const base = editNodeValue.trim();
@@ -114,10 +122,11 @@ export function NodeManagementNodeList({
                     return;
                   }
 
+                  const originBase = isCfClone && base.endsWith("-CF") ? base.slice(0, -3) : base;
                   const nextName = parts.tag
-                    ? formatNodeNameFromTemplate({ originName: base, tag: parts.tag, template: parts.template })
-                    : base;
-                  renameNode(node.name, nextName);
+                    ? formatNodeNameFromTemplate({ originName: originBase, tag: parts.tag, template: parts.template })
+                    : originBase;
+                  renameNode(storedName, nextName);
                 };
 
                 return (
@@ -182,14 +191,22 @@ export function NodeManagementNodeList({
                               {primaryTag}
                             </span>
                           )}
-                          <span className="text-white truncate" title={node.name}>
+                          <span className="text-white truncate" title={cfTitle ? `${node.name} · ${cfTitle}` : node.name}>
                             {parts.canEditBase ? parts.baseName : node.name}
                           </span>
-                          {isRenamed && (
+                          {cfMark ? (
+                            <span
+                              className="shrink-0 rounded border border-amber-500/40 bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-300"
+                              title={cfTitle}
+                            >
+                              {cfMark === "clone" ? "CF 副本" : "CF 优选"}
+                            </span>
+                          ) : null}
+                          {isRenamed && !isCfClone && (
                             <IconButton
                               label={`恢复原名: ${originName}`}
                               variant="ghost"
-                              onClick={() => restoreNodeName(node.name)}
+                              onClick={() => restoreNodeName(storedName)}
                               className="h-5 w-5 p-0.5 text-white/30 transition-colors hover:text-amber-400"
                             >
                               <RotateCcw className="h-2.5 w-2.5" />
@@ -226,16 +243,18 @@ export function NodeManagementNodeList({
                         })()}
                         <IconButton
                           label={
-                            healthCheckingNodes.includes(node.name)
+                            healthCheckingNodes.includes(storedName)
                               ? "测活中..."
-                              : "测活该节点"
+                              : isCfClone
+                                ? "测活原节点（CF 副本随订阅生成，测活走原节点）"
+                                : "测活该节点"
                           }
                           variant="ghost"
-                          onClick={() => onHealthCheckNode(node.name)}
+                          onClick={() => onHealthCheckNode(storedName)}
                           disabled={healthCheckingNodes.length > 0}
                           className="h-6 w-6 flex-shrink-0 p-1 text-white/40 transition-colors hover:bg-white/5 hover:text-emerald-300 disabled:opacity-60"
                         >
-                          {healthCheckingNodes.includes(node.name) ? (
+                          {healthCheckingNodes.includes(storedName) ? (
                             <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
                           ) : (
                             <Activity className="h-3 w-3" aria-hidden="true" />
@@ -291,45 +310,45 @@ export function NodeManagementNodeList({
                         <div className="flex items-center gap-0.5">
                           <Input
                             value={
-                              Object.prototype.hasOwnProperty.call(orderDrafts, node.name)
-                                ? orderDrafts[node.name]
-                                : String((nodeIndexByName.get(node.name) ?? 0) + 1)
+                              Object.prototype.hasOwnProperty.call(orderDrafts, storedName)
+                                ? orderDrafts[storedName]
+                                : String((nodeIndexByName.get(storedName) ?? 0) + 1)
                             }
-                            onChange={(e) => setOrderDrafts((prev) => ({ ...prev, [node.name]: e.target.value }))}
+                            onChange={(e) => setOrderDrafts((prev) => ({ ...prev, [storedName]: e.target.value }))}
                             onKeyDown={(e) => {
                               if (e.key === "Enter") {
-                                const val = parseInt(orderDrafts[node.name] ?? "", 10);
-                                if (Number.isFinite(val)) setNodeOrder(node.name, val);
+                                const val = parseInt(orderDrafts[storedName] ?? "", 10);
+                                if (Number.isFinite(val)) setNodeOrder(storedName, val);
                                 setOrderDrafts((prev) => {
-                                  const { [node.name]: _removed, ...rest } = prev;
+                                  const { [storedName]: _removed, ...rest } = prev;
                                   return rest;
                                 });
                               }
                               if (e.key === "Escape") {
                                 setOrderDrafts((prev) => {
-                                  const { [node.name]: _removed, ...rest } = prev;
+                                  const { [storedName]: _removed, ...rest } = prev;
                                   return rest;
                                 });
                               }
                             }}
                             onBlur={() => {
-                              const val = parseInt(orderDrafts[node.name] ?? "", 10);
-                              if (Number.isFinite(val)) setNodeOrder(node.name, val);
+                              const val = parseInt(orderDrafts[storedName] ?? "", 10);
+                              if (Number.isFinite(val)) setNodeOrder(storedName, val);
                               setOrderDrafts((prev) => {
-                                const { [node.name]: _removed, ...rest } = prev;
+                                const { [storedName]: _removed, ...rest } = prev;
                                 return rest;
                               });
                             }}
                             inputMode="numeric"
-                            title="排序位置（1=最前）"
+                            title={isCfClone ? "CF 副本跟随原节点排序" : "排序位置（1=最前）"}
                             className="h-6 w-10 text-[10px] bg-white/10 border-white/10 text-center px-1"
                           />
                           <div className="flex flex-col">
                             <IconButton
                               label="上移节点"
                               variant="ghost"
-                              onClick={() => moveNode(node.name, "up")}
-                              disabled={(nodeIndexByName.get(node.name) ?? 0) <= 0}
+                              onClick={() => moveNode(storedName, "up")}
+                              disabled={(nodeIndexByName.get(storedName) ?? 0) <= 0}
                               className="h-3 w-4 flex items-center justify-center text-white/30 hover:text-indigo-300 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                             >
                               <ChevronUp className="h-2.5 w-2.5" />
@@ -337,8 +356,8 @@ export function NodeManagementNodeList({
                             <IconButton
                               label="下移节点"
                               variant="ghost"
-                              onClick={() => moveNode(node.name, "down")}
-                              disabled={(nodeIndexByName.get(node.name) ?? 0) >= nodes.length - 1}
+                              onClick={() => moveNode(storedName, "down")}
+                              disabled={(nodeIndexByName.get(storedName) ?? 0) >= Math.max(0, nodeIndexByName.size - 1)}
                               className="h-3 w-4 flex items-center justify-center text-white/30 hover:text-indigo-300 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                             >
                               <ChevronDown className="h-2.5 w-2.5" />
@@ -346,7 +365,7 @@ export function NodeManagementNodeList({
                           </div>
                         </div>
                         <IconButton
-                          label="重命名节点"
+                          label={isCfClone ? "重命名原节点（副本名称会跟着变）" : "重命名节点"}
                           variant="ghost"
                           onClick={() => {
                             if (parts.tag && !parts.canEditBase) {
@@ -358,17 +377,18 @@ export function NodeManagementNodeList({
                               });
                               return;
                             }
+                            const base = parts.baseName;
                             setEditingNodeName(node.name);
-                            setEditNodeValue(parts.baseName);
+                            setEditNodeValue(isCfClone && base.endsWith("-CF") ? base.slice(0, -3) : base);
                           }}
                           className="h-6 w-6 p-1 text-white/50 hover:text-indigo-400 transition-colors"
                         >
                           <Pencil className="h-3 w-3" />
                         </IconButton>
                         <IconButton
-                          label="删除节点"
+                          label={isCfClone ? "删除原节点及其 CF 副本" : "删除节点"}
                           variant="ghost"
-                          onClick={() => removeNode(node.name)}
+                          onClick={() => removeNode(storedName)}
                           className="h-6 w-6 p-1 text-white/50 hover:text-red-400 transition-colors"
                         >
                           <Trash2 className="h-3 w-3" />

@@ -9,6 +9,7 @@ import { SubscriptionImportErrorBadge } from "@subboost/ui/product/converter/sub
 import { buildSourceDisplayLabel } from "@subboost/ui/product/converter/source-display-label";
 import { AddSourceMenu, SourceStatusPopover, SourceTypeChoices } from "@subboost/ui/product/converter/source-controls";
 import { SourceEditorDialog } from "@subboost/ui/product/converter/source-editor-dialog";
+import { SourceCfPreferredControls } from "@subboost/ui/product/converter/source-cf-preferred-controls";
 import { SourceHealthControls } from "@subboost/ui/product/converter/source-health-controls";
 import { useSubscriptionSourcesController } from "@subboost/ui/product/converter/use-subscription-sources-controller";
 import { sourceTypeInfo } from "./constants";
@@ -102,6 +103,10 @@ export function SourcesSection() {
                   )}
                 </div>
                 <div className="flex items-center gap-1">
+                  <SourceCfPreferredControls
+                    source={source}
+                    onToggle={(cfPreferred) => updateSourceMeta(source.id, { cfPreferred })}
+                  />
                   <SourceHealthControls
                     source={source}
                     checking={healthCheckingSourceId === source.id}

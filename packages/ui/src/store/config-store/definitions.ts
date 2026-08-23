@@ -1,6 +1,7 @@
 import type { ParsedNode, ParseResult } from "@subboost/core/types/node";
 import type {
   BuiltinRuleEdits,
+  CfPreferredSourceConfig,
   CustomProxyGroup,
   CustomRule,
   CustomRuleSet,
@@ -92,6 +93,8 @@ export interface SubscriptionSource {
   userinfoUserAgent?: string;
   // 自动测活设置（仅当未开启 proxy-providers 模式时生效）
   healthCheck?: SourceHealthCheckConfig;
+  // CF 优选：按源开关，为该源套 CF 的节点生成副本或替换入口
+  cfPreferred?: CfPreferredSourceConfig;
   // 导入状态
   parsed?: boolean;
   parsing?: boolean;

@@ -371,6 +371,7 @@ export function useSubscriptionLink({
                     ? { userinfoUserAgent: s.userinfoUserAgent.trim() }
                     : {}),
                   ...(s.healthCheck ? { healthCheck: s.healthCheck } : {}),
+                  ...(s.cfPreferred ? { cfPreferred: s.cfPreferred } : {}),
                   ...(typeof s.lastParsedTag === "string" && s.lastParsedTag.trim()
                     ? { lastParsedTag: s.lastParsedTag.trim() }
                     : {}),
@@ -413,7 +414,7 @@ export function useSubscriptionLink({
             testInterval,
             cnIpNoResolve,
             experimentalCnUseCnRuleSet,
-            autoSelectStrategy: "url-test",
+                      autoSelectStrategy: "url-test",
           },
         };
 
@@ -487,7 +488,7 @@ export function useSubscriptionLink({
     clearUser,
     cnIpNoResolve,
     experimentalCnUseCnRuleSet,
-    customProxyGroups,
+      customProxyGroups,
     customRuleSets,
     builtinRuleEdits,
     customRules,
