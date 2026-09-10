@@ -4,6 +4,8 @@
  */
 import {
   buildCfReplacedNode,
+  getCfPreferredMark,
+  getCfPreferredOf,
   isCfCdnNode,
   isCfPreferredApiUrl,
   type CfPreferredSpec,
@@ -62,7 +64,24 @@ function asNodes(raw: unknown): ParsedNode[] {
 }
 
 function displayName(node: ParsedNode, mode: CfPreferredSpec["mode"]): string {
-  return mode === "replace" ? node.name : `${node.name}-CF`;
+  const origin = getCfPreferredOf(node) ?? node.name;
+  return mode === "replace" ? origin : `${origin}-CF`;
+}
+
+/** 只拿原节点：跳过 CF 副本；replace 后同一原节点的多条入口只留一条 */
+function probeBaseNodes(nodes: ParsedNode[], sourceId: string): ParsedNode[] {
+  const seen = new Set<string>();
+  const out: ParsedNode[] = [];
+  for (const node of nodes) {
+    if (!getNodeSourceIds(node).includes(sourceId) || !isCfCdnNode(node)) continue;
+    if (getCfPreferredMark(node) === "clone") continue;
+    const key = getCfPreferredOf(node) ?? node.name;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(node);
+    if (out.length >= MAX_NODES) break;
+  }
+  return out;
 }
 
 export async function previewCfPreferredByNodes(
@@ -86,9 +105,7 @@ export async function previewCfPreferredByNodes(
     };
   }
 
-  const eligible = asNodes(params.nodes)
-    .filter((node) => getNodeSourceIds(node).includes(sourceId) && isCfCdnNode(node))
-    .slice(0, MAX_NODES);
+  const eligible = probeBaseNodes(asNodes(params.nodes), sourceId);
   if (eligible.length === 0) {
     return {
       candidates: [],

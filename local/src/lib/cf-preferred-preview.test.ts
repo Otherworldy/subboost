@@ -119,4 +119,56 @@ describe("previewCfPreferredByNodes", () => {
       },
     ]);
   });
+
+  it("只测原节点，不把已生成的 CF 副本再套一遍", async () => {
+    const runHealthCheck = vi.fn(async ({ nodes }: { nodes: Array<{ name: string }> }) => {
+      const map = new Map();
+      for (const node of nodes) map.set(node.name, { status: "ok", delayMs: 12, checkedAt: "t" });
+      return map;
+    });
+    const clone = {
+      ...cfNode("日本-三网优选1"),
+      server: "1.1.1.1",
+      _cfPreferred: "clone",
+      _cfPreferredOf: "日本",
+    } as unknown as ParsedNode;
+
+    await previewCfPreferredByNodes(
+      { address: "9.9.9.9", sourceId: "src-a", nodes: [cfNode("日本"), clone], mode: "clone" },
+      { fetchCandidates: async () => ["9.9.9.9"], runHealthCheck },
+    );
+
+    const probed = runHealthCheck.mock.calls[0][0].nodes as Array<{ server: string }>;
+    expect(probed).toHaveLength(1);
+    expect(probed[0].server).toBe("9.9.9.9");
+  });
+
+  it("replace 模式同一原节点的多条优选入口只测一次", async () => {
+    const runHealthCheck = vi.fn(async ({ nodes }: { nodes: Array<{ name: string }> }) => {
+      const map = new Map();
+      for (const node of nodes) map.set(node.name, { status: "ok", delayMs: 12, checkedAt: "t" });
+      return map;
+    });
+    const replaced = (name: string, server: string) =>
+      ({
+        ...cfNode(name),
+        server,
+        servername: "hk.example.com",
+        _cfPreferred: "replace",
+        _cfPreferredOf: "日本",
+      }) as unknown as ParsedNode;
+
+    const result = await previewCfPreferredByNodes(
+      {
+        address: "9.9.9.9",
+        sourceId: "src-a",
+        nodes: [replaced("日本-电信优选1", "1.1.1.1"), replaced("日本-移动优选1", "2.2.2.2")],
+        mode: "replace",
+      },
+      { fetchCandidates: async () => ["9.9.9.9"], runHealthCheck },
+    );
+
+    expect(runHealthCheck.mock.calls[0][0].nodes).toHaveLength(1);
+    expect(result.candidates[0]?.nodes).toEqual([{ name: "日本", status: "ok", delayMs: 12 }]);
+  });
 });
