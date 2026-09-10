@@ -159,6 +159,20 @@ function cloneTag(carrier?: CfPreferredCarrier): string {
   return carrier ? CF_PREFERRED_CLONE_TAGS[carrier] : "优选";
 }
 
+const SPECIFIC_CF_TAGS = new Set<string>(Object.values(CF_PREFERRED_CLONE_TAGS));
+
+function managedCfTag(name: string, origin: string): string | undefined {
+  if (!name.startsWith(`${origin}-`)) return undefined;
+  return name.slice(origin.length + 1).match(/^(CF\d*|(?:三网|电信|联通|移动|海外)?优选)(?:\d+)(?:-\d+)?$/)?.[1];
+}
+
+function keepExistingCfName(baseName: string, carrier: CfPreferredCarrier | undefined, currentName?: string): string | undefined {
+  if (!currentName || carrier) return undefined;
+  const currentTag = managedCfTag(currentName, baseName);
+  if (currentTag && SPECIFIC_CF_TAGS.has(currentTag)) return currentName;
+  return undefined;
+}
+
 function groupCloneName(
   baseName: string,
   tag: string,
@@ -181,11 +195,18 @@ function groupCloneName(
 
 function takeGroupCloneName(
   baseName: string,
-  tag: string,
+  carrier: CfPreferredCarrier | undefined,
   seq: Map<string, number>,
   used: Set<string>,
   currentName?: string,
 ): string {
+  const kept = keepExistingCfName(baseName, carrier, currentName);
+  if (kept) {
+    const currentTag = managedCfTag(kept, baseName);
+    if (currentTag) seq.set(currentTag, (seq.get(currentTag) ?? 0) + 1);
+    return kept;
+  }
+  const tag = cloneTag(carrier);
   const n = (seq.get(tag) ?? 0) + 1;
   seq.set(tag, n);
   return groupCloneName(baseName, tag, n, used, currentName);
@@ -431,6 +452,8 @@ export function expandCfPreferredNodes(
       const entries = specEntries(spec);
       const index = entries.findIndex((entry) => entry.address === node.server);
       if (index < 0) return [node];
+      const kept = keepExistingCfName(base, entries[index].carrier, node.name);
+      if (kept) return [node];
       const tag = cloneTag(entries[index].carrier);
       const n = entries.slice(0, index + 1).filter((entry) => cloneTag(entry.carrier) === tag).length;
       const name = groupCloneName(base, tag, n, existingNames, node.name);
@@ -446,7 +469,7 @@ export function expandCfPreferredNodes(
     if (spec.mode === "replace") {
       return entries.map((entry) => {
         const replaced = buildCfReplacedNode(node, entry.address) as unknown as Record<string, unknown>;
-        const name = takeGroupCloneName(base, cloneTag(entry.carrier), seq, existingNames);
+        const name = takeGroupCloneName(base, entry.carrier, seq, existingNames);
         replaced.name = name;
         existingNames.add(name);
         return replaced as unknown as ParsedNode;
@@ -465,7 +488,7 @@ export function expandCfPreferredNodes(
       if (existing) {
         consumed.add(existing);
         if (isManagedCfCloneName(existing.name, of) || isManagedCfCloneName(existing.name, base)) {
-          const name = takeGroupCloneName(base, cloneTag(entry.carrier), seq, existingNames, existing.name);
+          const name = takeGroupCloneName(base, entry.carrier, seq, existingNames, existing.name);
           existingNames.add(name);
           result.push(withCloneName(existing, name));
         } else {
@@ -473,7 +496,7 @@ export function expandCfPreferredNodes(
         }
         return;
       }
-      const name = takeGroupCloneName(base, cloneTag(entry.carrier), seq, existingNames);
+      const name = takeGroupCloneName(base, entry.carrier, seq, existingNames);
       const clone = buildCfPreferredClone(node, entry.address, name);
       existingNames.add(name);
       result.push(clone);

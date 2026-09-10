@@ -357,4 +357,29 @@ describe("expandCfPreferredNodes idempotent / syncCfPreferredNodes", () => {
     expect(once.map((n) => n.name)).toEqual(names);
     expect(applyCfPreferredToNodes(once, sources, pool).map((n) => n.name)).toEqual(names);
   });
+
+  it("没有运营商信息时不把 三网优选 改回 优选", () => {
+    const withCarrier = {
+      "src-a": {
+        address: "1.1.1.1",
+        addresses: ["1.1.1.1"],
+        entries: [{ address: "1.1.1.1", carrier: "optimized" as const }],
+        mode: "clone" as const,
+      },
+    };
+    const withoutCarrier = {
+      "src-a": { address: "1.1.1.1", addresses: ["1.1.1.1"], mode: "clone" as const },
+    };
+    const named = expandCfPreferredNodes([vlessWsTls()], withCarrier);
+    expect(named.map((n) => n.name)).toEqual(["香港 IEPL-01", "香港 IEPL-01-三网优选1"]);
+    expect(expandCfPreferredNodes(named, withoutCarrier).map((n) => n.name)).toEqual([
+      "香港 IEPL-01",
+      "香港 IEPL-01-三网优选1",
+    ]);
+    expect(
+      applyCfPreferredToNodes(named, [{ id: "src-a", cfPreferred: { enabled: true, addresses: ["1.1.1.1"] } }], null).map(
+        (n) => n.name,
+      ),
+    ).toEqual(["香港 IEPL-01", "香港 IEPL-01-三网优选1"]);
+  });
 });

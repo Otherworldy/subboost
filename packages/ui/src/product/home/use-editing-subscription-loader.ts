@@ -10,6 +10,7 @@ import { normalizeRuleModelFromConfig } from "@subboost/core/rules/rule-model";
 import { resolveProxyGroupAdvancedModeEnabled } from "@subboost/core/proxy-group-advanced-mode";
 import { normalizeProxyGroupAdvancedConfig } from "@subboost/core/proxy-group-advanced";
 import { applyCfPreferredToNodes, normalizeCfPreferredSourceConfig } from "@subboost/core/subscription/cf-preferred";
+import { peekCfPreferredPool } from "@subboost/ui/product/converter/use-cf-preferred-pool";
 import { tryNormalizeSubscriptionUrlInput } from "@subboost/core/subscription/url-input";
 import { normalizeSourceHealthCheck } from "@subboost/core/subscription/node-health";
 import {
@@ -553,7 +554,7 @@ export function useEditingSubscriptionLoader({
           nodes: applyCfPreferredToNodes(
             hydratedNodes,
             rebuiltSourcesWithStatus,
-            useConfigStore.getState().cfPreferredPool,
+            useConfigStore.getState().cfPreferredPool ?? peekCfPreferredPool(),
           ),
           deletedNodeNames: deletedNodeNamesMerged.length > 0 ? deletedNodeNamesMerged : state.deletedNodeNames,
           deletedNodes:

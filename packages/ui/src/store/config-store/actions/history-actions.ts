@@ -91,7 +91,7 @@ export function createHistoryActions(set: SetState, get: GetState): HistoryActio
     },
 
     reset: () => {
-      set(initialState);
+      set({ ...initialState, cfPreferredPool: get().cfPreferredPool ?? null });
     },
   };
 }
