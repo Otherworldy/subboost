@@ -1,4 +1,8 @@
-FROM node:22-alpine AS deps
+# 默认官方镜像；国内构建通过 NODE_IMAGE / MIHOMO_IMAGE 换成镜像站（见 local.env.example）。
+ARG NODE_IMAGE=node:22-alpine
+ARG MIHOMO_IMAGE=metacubex/mihomo:v1.19.28
+
+FROM ${NODE_IMAGE} AS deps
 WORKDIR /package
 RUN apk add --no-cache openssl
 
@@ -35,9 +39,9 @@ RUN --mount=type=cache,target=/root/.npm,sharing=locked \
     done
 
 # 测活内核：固定版本的官方多架构 mihomo 镜像（amd64/arm64），构建时按平台自动选取
-FROM metacubex/mihomo:v1.19.28 AS mihomo
+FROM ${MIHOMO_IMAGE} AS mihomo
 
-FROM node:22-alpine AS builder
+FROM ${NODE_IMAGE} AS builder
 WORKDIR /package
 RUN apk add --no-cache openssl
 
@@ -65,7 +69,7 @@ RUN if [ -n "${PRISMA_ENGINES_MIRROR:-}" ]; then export PRISMA_ENGINES_MIRROR; f
 FROM deps AS production-deps
 RUN npm prune --omit=dev
 
-FROM node:22-alpine AS runner
+FROM ${NODE_IMAGE} AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ARG APP_RELEASE_VERSION=

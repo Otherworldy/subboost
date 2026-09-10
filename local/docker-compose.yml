@@ -2,7 +2,7 @@ name: subboost
 
 services:
   db:
-    image: postgres:16-alpine
+    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-subboost}
@@ -27,6 +27,8 @@ services:
         APP_VERSION_TOKEN: ${APP_VERSION_TOKEN:-}
         NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com}
         PRISMA_ENGINES_MIRROR: ${PRISMA_ENGINES_MIRROR:-https://registry.npmmirror.com/-/binary/prisma}
+        NODE_IMAGE: ${NODE_IMAGE:-node:22-alpine}
+        MIHOMO_IMAGE: ${MIHOMO_IMAGE:-metacubex/mihomo:v1.19.28}
     restart: unless-stopped
     depends_on:
       db:
@@ -47,7 +49,7 @@ services:
       APP_VERSION_TOKEN: ${APP_VERSION_TOKEN:-}
 
   cron:
-    image: curlimages/curl:8.11.1
+    image: ${CURL_IMAGE:-curlimages/curl:8.11.1}
     restart: unless-stopped
     depends_on:
       app:
