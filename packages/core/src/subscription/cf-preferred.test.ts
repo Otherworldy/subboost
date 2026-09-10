@@ -248,6 +248,42 @@ describe("expandCfPreferredNodes idempotent / syncCfPreferredNodes", () => {
     ]);
   });
 
+  it("再次展开时名字稳定，不会变成 优选1-2", () => {
+    const spec = {
+      "src-a": {
+        address: "1.1.1.1",
+        addresses: ["1.1.1.1", "2.2.2.2"],
+        entries: [
+          { address: "1.1.1.1", carrier: "mobile" as const },
+          { address: "2.2.2.2", carrier: "mobile" as const },
+        ],
+        mode: "clone" as const,
+      },
+    };
+    const names = ["香港 IEPL-01", "香港 IEPL-01-移动优选1", "香港 IEPL-01-移动优选2"];
+    const once = expandCfPreferredNodes([vlessWsTls()], spec);
+    expect(once.map((n) => n.name)).toEqual(names);
+    expect(expandCfPreferredNodes(once, spec).map((n) => n.name)).toEqual(names);
+    expect(expandCfPreferredNodes(expandCfPreferredNodes(once, spec), spec).map((n) => n.name)).toEqual(names);
+  });
+
+  it("replace 再次展开不会叠加后缀", () => {
+    const spec = {
+      "src-a": {
+        address: "1.1.1.1",
+        addresses: ["1.1.1.1", "2.2.2.2"],
+        entries: [
+          { address: "1.1.1.1", carrier: "telecom" as const },
+          { address: "2.2.2.2", carrier: "mobile" as const },
+        ],
+        mode: "replace" as const,
+      },
+    };
+    const once = expandCfPreferredNodes([vlessWsTls()], spec);
+    expect(once.map((n) => n.name)).toEqual(["香港 IEPL-01-电信优选1", "香港 IEPL-01-移动优选1"]);
+    expect(expandCfPreferredNodes(once, spec).map((n) => n.name)).toEqual(once.map((n) => n.name));
+  });
+
   it("关掉源时丢掉副本；改地址时只改入口并保留测活", () => {
     const original = vlessWsTls();
     const clone = {
@@ -301,5 +337,24 @@ describe("expandCfPreferredNodes idempotent / syncCfPreferredNodes", () => {
     expect(out.map((n) => n.name)).toEqual(["香港 IEPL-01", "香港 IEPL-01-电信优选1", "香港 IEPL-01-联通优选1"]);
     expect(out[1].server).toBe("1.1.1.1");
     expect(out[2].server).toBe("8.8.8.8");
+  });
+
+  it("勾选入口时从平台池带上运营商名，且再次同步名字不变", () => {
+    const pool = {
+      enabled: false,
+      mode: "clone" as const,
+      probeIntervalMinutes: 15,
+      entries: [
+        { id: "a", address: "1.1.1.1", carrier: "mobile" as const, enabled: true },
+        { id: "b", address: "8.8.8.8", carrier: "telecom" as const, enabled: true },
+      ],
+    };
+    const sources = [
+      { id: "src-a", cfPreferred: { enabled: true, addresses: ["1.1.1.1", "8.8.8.8"] } },
+    ];
+    const names = ["香港 IEPL-01", "香港 IEPL-01-移动优选1", "香港 IEPL-01-电信优选1"];
+    const once = applyCfPreferredToNodes([vlessWsTls()], sources, pool);
+    expect(once.map((n) => n.name)).toEqual(names);
+    expect(applyCfPreferredToNodes(once, sources, pool).map((n) => n.name)).toEqual(names);
   });
 });

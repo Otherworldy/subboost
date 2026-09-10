@@ -141,18 +141,34 @@ function originKey(node: ParsedNode): string {
   return typeof origin === "string" && origin.trim() ? origin.trim() : node.name;
 }
 
+const MANAGED_CF_SUFFIX_RE = /-(?:CF\d*|(?:三网|电信|联通|移动|海外)?优选\d+)(?:-\d+)?$/;
+
+function stripManagedCfSuffix(name: string): string {
+  return name.replace(MANAGED_CF_SUFFIX_RE, "");
+}
+
 function cloneTargetKey(node: ParsedNode): string {
-  return getCfPreferredOf(node) ?? (node.name.endsWith("-CF") ? node.name.slice(0, -3) : node.name);
+  return getCfPreferredOf(node) ?? stripManagedCfSuffix(node.name);
+}
+
+function cfNameBase(node: ParsedNode): string {
+  return getCfPreferredOf(node) ?? stripManagedCfSuffix(node.name);
 }
 
 function cloneTag(carrier?: CfPreferredCarrier): string {
   return carrier ? CF_PREFERRED_CLONE_TAGS[carrier] : "优选";
 }
 
-function nextGroupCloneName(baseName: string, tag: string, seq: Map<string, number>, used: Set<string>): string {
-  const n = (seq.get(tag) ?? 0) + 1;
-  seq.set(tag, n);
+function groupCloneName(
+  baseName: string,
+  tag: string,
+  n: number,
+  used: Set<string>,
+  currentName?: string,
+): string {
   const preferred = `${baseName}-${tag}${n}`;
+  if (currentName === preferred) return preferred;
+  if (currentName) used.delete(currentName);
   if (!used.has(preferred)) return preferred;
   let extra = 2;
   let candidate = `${preferred}-${extra}`;
@@ -161,6 +177,18 @@ function nextGroupCloneName(baseName: string, tag: string, seq: Map<string, numb
     candidate = `${preferred}-${extra}`;
   }
   return candidate;
+}
+
+function takeGroupCloneName(
+  baseName: string,
+  tag: string,
+  seq: Map<string, number>,
+  used: Set<string>,
+  currentName?: string,
+): string {
+  const n = (seq.get(tag) ?? 0) + 1;
+  seq.set(tag, n);
+  return groupCloneName(baseName, tag, n, used, currentName);
 }
 
 function isManagedCfCloneName(name: string, origin: string): boolean {
@@ -199,10 +227,11 @@ function withCloneAddress(node: ParsedNode, address: string): ParsedNode {
   return next as unknown as ParsedNode;
 }
 
-/** 直接替换原节点入口，节点名不变 */
+/** 直接替换原节点入口 */
 export function buildCfReplacedNode(node: ParsedNode, address: string): ParsedNode {
   const replaced = rewriteCfServer(node, address);
   replaced[CF_PREFERRED_MARK_KEY] = "replace";
+  replaced[CF_PREFERRED_OF_KEY] = getCfPreferredOf(node) ?? stripManagedCfSuffix(node.name);
   return replaced as unknown as ParsedNode;
 }
 
@@ -392,17 +421,32 @@ export function expandCfPreferredNodes(
   if (!rulesBySourceId || Object.keys(rulesBySourceId).length === 0) return nodes;
   const existingNames = new Set(nodes.map((node) => node.name));
   const consumed = new Set<ParsedNode>();
-  return nodes.flatMap((node) => {
-    if (getCfPreferredMark(node) === "clone") return consumed.has(node) ? [] : [node];
+  const expanded = nodes.flatMap((node) => {
+    if (getCfPreferredMark(node) === "clone") return [];
+    if (getCfPreferredMark(node) === "replace") {
+      const spec = specForNode(node, rulesBySourceId);
+      if (!spec) return [node];
+      const base = cfNameBase(node);
+      if (!isManagedCfCloneName(node.name, base)) return [node];
+      const entries = specEntries(spec);
+      const index = entries.findIndex((entry) => entry.address === node.server);
+      if (index < 0) return [node];
+      const tag = cloneTag(entries[index].carrier);
+      const n = entries.slice(0, index + 1).filter((entry) => cloneTag(entry.carrier) === tag).length;
+      const name = groupCloneName(base, tag, n, existingNames, node.name);
+      existingNames.add(name);
+      return [withCloneName(node, name)];
+    }
     const spec = specForNode(node, rulesBySourceId);
     if (!spec || !isCfCdnNode(node)) return [node];
     const entries = specEntries(spec);
     if (entries.length === 0) return [node];
     const seq = new Map<string, number>();
+    const base = stripManagedCfSuffix(node.name);
     if (spec.mode === "replace") {
       return entries.map((entry) => {
         const replaced = buildCfReplacedNode(node, entry.address) as unknown as Record<string, unknown>;
-        const name = nextGroupCloneName(node.name, cloneTag(entry.carrier), seq, existingNames);
+        const name = takeGroupCloneName(base, cloneTag(entry.carrier), seq, existingNames);
         replaced.name = name;
         existingNames.add(name);
         return replaced as unknown as ParsedNode;
@@ -420,8 +464,8 @@ export function expandCfPreferredNodes(
       );
       if (existing) {
         consumed.add(existing);
-        if (isManagedCfCloneName(existing.name, of) || isManagedCfCloneName(existing.name, node.name)) {
-          const name = nextGroupCloneName(node.name, cloneTag(entry.carrier), seq, existingNames);
+        if (isManagedCfCloneName(existing.name, of) || isManagedCfCloneName(existing.name, base)) {
+          const name = takeGroupCloneName(base, cloneTag(entry.carrier), seq, existingNames, existing.name);
           existingNames.add(name);
           result.push(withCloneName(existing, name));
         } else {
@@ -429,13 +473,15 @@ export function expandCfPreferredNodes(
         }
         return;
       }
-      const name = nextGroupCloneName(node.name, cloneTag(entry.carrier), seq, existingNames);
+      const name = takeGroupCloneName(base, cloneTag(entry.carrier), seq, existingNames);
       const clone = buildCfPreferredClone(node, entry.address, name);
       existingNames.add(name);
       result.push(clone);
     });
     return result;
   });
+  const orphans = nodes.filter((node) => getCfPreferredMark(node) === "clone" && !consumed.has(node));
+  return orphans.length === 0 ? expanded : [...expanded, ...orphans];
 }
 
 /** 把 CF 副本写进节点列表：关掉的源丢掉副本，地址变了就改入口，缺的补上。 */
