@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
       upsert: vi.fn(),
     },
   },
+  loadEnabledCfPreferredPool: vi.fn(),
   readSubscriptionSecrets: vi.fn(),
   recordCronUpdateSkipped: vi.fn(),
   refreshNodeSnapshot: vi.fn(),
@@ -47,6 +48,10 @@ vi.mock("@subboost/server-core/subscription", () => ({
 }));
 vi.mock("./crypto", () => ({ encryptJson: mocks.encryptJson }));
 vi.mock("./prisma", () => ({ prisma: mocks.prisma }));
+vi.mock("./cf-preferred-pool", () => ({
+  loadEnabledCfPreferredPool: mocks.loadEnabledCfPreferredPool,
+  readCfPreferredPool: mocks.loadEnabledCfPreferredPool,
+}));
 vi.mock("./subscription-service", () => ({
   buildSubscriptionCacheExpiry: mocks.buildSubscriptionCacheExpiry,
   buildSubscriptionFetchCallbacks: mocks.buildSubscriptionFetchCallbacks,
@@ -78,6 +83,7 @@ describe("local subscription auto update service", () => {
     vi.spyOn(console, "info").mockImplementation(() => undefined);
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
+    mocks.loadEnabledCfPreferredPool.mockResolvedValue(undefined);
     mocks.createCronUpdateAccumulator.mockImplementation(accumulator);
     mocks.recordCronUpdateSkipped.mockImplementation((acc) => {
       acc.skipped += 1;

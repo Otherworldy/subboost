@@ -35,6 +35,7 @@ import {
 } from "@subboost/server-core/subscription";
 import { decryptJson, decryptJsonObject, encryptJson } from "./crypto";
 import { prepareCfPreferredRules } from "@subboost/server-core/cf-preferred";
+import { readCfPreferredPool } from "./cf-preferred-pool";
 import { getAppUrl } from "./env";
 import { prisma } from "./prisma";
 import { fetchSourceUserInfoHeadersDirect, importSourceUrlDirect } from "./source-import";
@@ -262,7 +263,18 @@ export async function listSubscriptions(ownerId: string): Promise<SubscriptionSu
     include: { autoUpdateState: true },
     orderBy: { updatedAt: "desc" },
   });
-  return rows.map(formatSubscription);
+  const out: SubscriptionSummary[] = [];
+  for (const row of rows) {
+    try {
+      out.push(formatSubscription(row));
+    } catch (error) {
+      console.error(
+        `[listSubscriptions] skip unreadable subscription ${row.id}:`,
+        error instanceof Error ? error.message : error,
+      );
+    }
+  }
+  return out;
 }
 
 export async function createSubscription(
@@ -767,6 +779,7 @@ export async function refreshSubscription(
     config: secrets.config,
     snapshot,
     maxNodesPerSubscription: MAX_NODES_PER_SUBSCRIPTION,
+    platformPool: await readCfPreferredPool(ownerId),
   });
 
   if (!refreshResult.ok) {
@@ -888,7 +901,9 @@ export async function generateSubscriptionYaml(token: string): Promise<Generated
     nodes: secrets.nodes,
     proxyProviders,
     // CF 优选规则在此解析为最新 IP（带 TTL 缓存与失败回退）
-    cfPreferredBySource: await prepareCfPreferredRules(secrets.config),
+    cfPreferredBySource: await prepareCfPreferredRules(secrets.config, {
+      platformPool: await readCfPreferredPool(row.ownerId),
+    }),
   });
   const yaml = generateClashYaml(options);
   await recordSubscriptionAccess(row.id, new Date());

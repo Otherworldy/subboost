@@ -1,3 +1,4 @@
+import type { CfPreferredPoolConfig } from "@subboost/core/types/config";
 import type { ConfigActions } from "../definitions";
 import { parseNodeNameFilterConfig } from "@subboost/core/subscription/node-name-filter";
 import type { GetState, SetAndGenerateConfig, SetState } from "../store-types";
@@ -14,6 +15,7 @@ type SettingsActions = Pick<
   | "setProxyGroupAdvancedModeEnabled"
   | "setCnIpNoResolve"
   | "setExperimentalCnUseCnRuleSet"
+  | "setCfPreferredPool"
 >;
 
 export function createSettingsActions(
@@ -62,6 +64,10 @@ export function createSettingsActions(
 
     setExperimentalCnUseCnRuleSet: (value: boolean) => {
       setAndGenerateConfig(() => ({ experimentalCnUseCnRuleSet: Boolean(value) }));
+    },
+
+    setCfPreferredPool: (pool: CfPreferredPoolConfig | null) => {
+      setAndGenerateConfig(() => ({ cfPreferredPool: pool }));
     },
   };
 }

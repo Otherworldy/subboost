@@ -17,6 +17,7 @@ import {
   Shield,
   Trash2,
   Upload,
+  Zap,
 } from "lucide-react";
 
 import { Button } from "@subboost/ui/components/ui/button";
@@ -45,6 +46,7 @@ import { formatDashboardDate, formatIntervalLabel } from "@subboost/ui/dashboard
 import { buildRefreshSubscriptionSuccessToast } from "@subboost/ui/dashboard/dashboard-refresh-toast";
 import { SubscriptionSettingsDialog } from "@subboost/ui/dashboard/subscription-settings-dialog";
 import type { RefreshSubscriptionResponse, Subscription } from "@subboost/ui/dashboard/dashboard-types";
+import { cn } from "@subboost/ui/lib/utils";
 
 type UpdateSettingsPayload = {
   name: string;
@@ -59,6 +61,7 @@ export type DashboardSurfaceAdapter = {
   settingsHref?: string | null;
   settingsTitle?: string;
   settingsDescription?: string;
+  cfPreferredHref?: string | null;
   autoUpdateIntervalPolicy?: AutoUpdateIntervalPolicyOverride;
   editSubscriptionHref?: (subscription: Subscription) => string;
   fetchSubscriptions: () => Promise<Subscription[]>;
@@ -623,7 +626,16 @@ export function SubscriptionDashboardSurface({ adapter }: Props) {
         </DialogContent>
       </Dialog>
 
-      <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className={cn("mt-6 grid grid-cols-1 md:grid-cols-2 gap-4", adapter.cfPreferredHref && "lg:grid-cols-3")}>
+        {adapter.cfPreferredHref && (
+          <QuickActionCard
+            href={adapter.cfPreferredHref}
+            icon={<Zap className="h-6 w-6" />}
+            iconClassName="bg-amber-500/20 text-amber-400"
+            title="CF 优选入口池"
+            description="平台级三网入口、探活与统一注入"
+          />
+        )}
         {adapter.templatesHref && (
           <QuickActionCard
             href={adapter.templatesHref}

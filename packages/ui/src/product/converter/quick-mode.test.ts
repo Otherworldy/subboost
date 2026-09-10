@@ -9,6 +9,9 @@ vi.mock("./quick-mode/sources-section", () => ({
 vi.mock("./quick-mode/templates-section", () => ({
   TemplatesSection: () => React.createElement("div", null, "templates-section"),
 }));
+vi.mock("./use-cf-preferred-pool", () => ({
+  useCfPreferredPoolSync: () => undefined,
+}));
 
 import { QuickMode } from "./quick-mode";
 

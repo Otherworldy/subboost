@@ -172,6 +172,7 @@ describe("NodeManagementSection", () => {
       setListenerPort: vi.fn(),
       bulkSetListenerPorts: vi.fn(),
       setNodeNameFilter: vi.fn(),
+      cfPreferredPool: null,
     };
   });
 

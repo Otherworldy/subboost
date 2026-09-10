@@ -59,6 +59,7 @@ vi.mock("lucide-react", () => ({
   X: () => React.createElement("span", null, "x-icon"),
   LogIn: () => React.createElement("span", null, "login-icon"),
   Shield: () => React.createElement("span", null, "shield-icon"),
+  Zap: () => React.createElement("span", null, "zap-icon"),
 }));
 
 vi.mock("@subboost/ui/components/auth/user-menu", async () => {
@@ -133,7 +134,9 @@ describe("Header", () => {
     expect(html).toContain("self-host");
     expect(html).toContain("自部署入口");
     expect(html).toContain("我的订阅");
+    expect(html).toContain("CF 优选");
     expect(html).not.toContain("FAQ");
+    expect(mocks.links.some((link) => link.href === "/dashboard/cf")).toBe(true);
     expect(html).not.toContain("管理");
     expect(mocks.links.some((link) => link.href === adminPath)).toBe(false);
   });

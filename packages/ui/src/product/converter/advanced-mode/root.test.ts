@@ -36,7 +36,13 @@ function section(name: string) {
 }
 
 vi.mock("@subboost/ui/store/config-store", () => ({
-  useConfigStore: vi.fn(),
+  useConfigStore: (selector?: (state: { setCfPreferredPool: () => void }) => unknown) => {
+    const state = { setCfPreferredPool: vi.fn() };
+    return typeof selector === "function" ? selector(state) : state;
+  },
+}));
+vi.mock("../use-cf-preferred-pool", () => ({
+  useCfPreferredPoolSync: () => undefined,
 }));
 
 vi.mock("./sections/input-section", () => ({ InputSection: section("input") }));

@@ -5,16 +5,39 @@
  * "入口与身份分离"的特性：任意 CF 边缘 IP 都能通过 SNI/Host 路由到原服务器。
  * 按订阅源为命中节点生成优选副本（clone）或直接替换入口（replace）。
  */
-import type { CfPreferredMode, CfPreferredSourceConfig } from "@subboost/core/types/config";
+import type {
+  CfPreferredCarrier,
+  CfPreferredCustomEntry,
+  CfPreferredMode,
+  CfPreferredPoolConfig,
+  CfPreferredSourceConfig,
+} from "@subboost/core/types/config";
+import { CF_PREFERRED_CARRIERS } from "@subboost/core/types/config";
 import type { ParsedNode } from "@subboost/core/types/node";
 import { getNodeSourceIds } from "@subboost/core/subscription/node-source-state";
+import { mergePlatformCfPreferredPool } from "./cf-preferred-pool";
 
 /** Cloudflare 支持的 HTTPS 端口；不在白名单的端口不可能是 CF 入口 */
 export const CF_TLS_PORTS: ReadonlySet<number> = new Set([443, 2053, 2083, 2087, 2096, 8443]);
 
-export type CfPreferredSpec = { address: string; addresses?: string[]; mode: CfPreferredMode };
+export type CfPreferredSpecEntry = { address: string; carrier?: CfPreferredCarrier };
+export type CfPreferredSpec = {
+  address: string;
+  addresses?: string[];
+  entries?: CfPreferredSpecEntry[];
+  mode: CfPreferredMode;
+};
 
-export const MAX_CF_PREFERRED_ADDRESSES = 8;
+export const CF_PREFERRED_CLONE_TAGS: Record<CfPreferredCarrier, string> = {
+  optimized: "三网优选",
+  telecom: "电信优选",
+  unicom: "联通优选",
+  mobile: "移动优选",
+  global: "海外优选",
+};
+
+// ponytail: 不对 CF 优选节点设置人工上限
+export const MAX_CF_PREFERRED_ADDRESSES = 100_000;
 
 export function normalizeCfPreferredAddresses(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
@@ -26,15 +49,20 @@ export function normalizeCfPreferredAddresses(value: unknown): string[] {
     if (!addr || isCfPreferredApiUrl(addr) || seen.has(addr)) continue;
     seen.add(addr);
     out.push(addr);
-    if (out.length >= MAX_CF_PREFERRED_ADDRESSES) break;
   }
   return out;
 }
 
 export function specAddresses(spec: CfPreferredSpec): string[] {
+  if (spec.entries && spec.entries.length > 0) return spec.entries.map((entry) => entry.address);
   if (spec.addresses && spec.addresses.length > 0) return spec.addresses;
   const address = typeof spec.address === "string" ? spec.address.trim() : "";
   return address ? [address] : [];
+}
+
+export function specEntries(spec: CfPreferredSpec): CfPreferredSpecEntry[] {
+  if (spec.entries && spec.entries.length > 0) return spec.entries;
+  return specAddresses(spec).map((address) => ({ address }));
 }
 
 const CDN_CAPABLE_TYPES: ReadonlySet<string> = new Set(["vmess", "vless", "trojan"]);
@@ -117,16 +145,38 @@ function cloneTargetKey(node: ParsedNode): string {
   return getCfPreferredOf(node) ?? (node.name.endsWith("-CF") ? node.name.slice(0, -3) : node.name);
 }
 
-function nextCloneName(baseName: string, index: number, used: Set<string>): string {
-  const preferred = index === 0 ? `${baseName}-CF` : `${baseName}-CF${index + 1}`;
+function cloneTag(carrier?: CfPreferredCarrier): string {
+  return carrier ? CF_PREFERRED_CLONE_TAGS[carrier] : "优选";
+}
+
+function nextGroupCloneName(baseName: string, tag: string, seq: Map<string, number>, used: Set<string>): string {
+  const n = (seq.get(tag) ?? 0) + 1;
+  seq.set(tag, n);
+  const preferred = `${baseName}-${tag}${n}`;
   if (!used.has(preferred)) return preferred;
-  let n = 2;
-  let candidate = `${preferred}-${n}`;
+  let extra = 2;
+  let candidate = `${preferred}-${extra}`;
   while (used.has(candidate)) {
-    n += 1;
-    candidate = `${preferred}-${n}`;
+    extra += 1;
+    candidate = `${preferred}-${extra}`;
   }
   return candidate;
+}
+
+function isManagedCfCloneName(name: string, origin: string): boolean {
+  if (!name.startsWith(`${origin}-`)) return false;
+  return /^(CF\d*|(?:三网|电信|联通|移动|海外)?优选\d+)(-\d+)?$/.test(name.slice(origin.length + 1));
+}
+
+function withCloneName(node: ParsedNode, name: string): ParsedNode {
+  if (node.name === name) return node;
+  return { ...(node as unknown as Record<string, unknown>), name, _originName: name } as unknown as ParsedNode;
+}
+
+function asCarrier(value: unknown): CfPreferredCarrier | undefined {
+  return typeof value === "string" && (CF_PREFERRED_CARRIERS as readonly string[]).includes(value)
+    ? (value as CfPreferredCarrier)
+    : undefined;
 }
 
 /** 为单个套 CF 节点构建优选副本（原节点名加 -CF 后缀） */
@@ -156,18 +206,54 @@ export function buildCfReplacedNode(node: ParsedNode, address: string): ParsedNo
   return replaced as unknown as ParsedNode;
 }
 
+function normalizeCustomLines(value: unknown): CfPreferredCustomEntry[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const out: CfPreferredCustomEntry[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (!isRecord(item) || typeof item.address !== "string") continue;
+    const address = item.address.trim();
+    if (!address || isCfPreferredApiUrl(address) || seen.has(address)) continue;
+    seen.add(address);
+    const label = typeof item.label === "string" ? item.label.trim().slice(0, 64) : "";
+    const carrier = asCarrier(item.carrier);
+    const ms =
+      item.ms === null
+        ? null
+        : typeof item.ms === "number" && Number.isFinite(item.ms)
+          ? Math.max(0, Math.round(item.ms))
+          : undefined;
+    out.push({
+      address,
+      ...(label ? { label } : {}),
+      ...(carrier ? { carrier } : {}),
+      ...(ms !== undefined ? { ms } : {}),
+    });
+  }
+  return out;
+}
+
 export function normalizeCfPreferredSourceConfig(value: unknown): CfPreferredSourceConfig | undefined {
   if (!isRecord(value)) return undefined;
   const address = typeof value.address === "string" ? value.address.trim() : "";
+  const hasAddresses = Array.isArray(value.addresses);
   const addresses = normalizeCfPreferredAddresses(value.addresses);
   const mode: CfPreferredMode = value.mode === "replace" ? "replace" : "clone";
   const enabled = value.enabled === true;
-  if (!enabled && !address && addresses.length === 0) return undefined;
+  const strategy = value.strategy === "custom" || value.strategy === "platform" ? value.strategy : undefined;
+  const customLines = normalizeCustomLines(value.customLines);
+  const rawCustomText = typeof value.rawCustomText === "string" ? value.rawCustomText : "";
+  if (!enabled && !address && !hasAddresses && !strategy && !customLines?.length && !rawCustomText.trim()) {
+    return undefined;
+  }
   return {
     ...(enabled ? { enabled: true } : {}),
+    ...(strategy ? { strategy } : {}),
     ...(address ? { address } : {}),
-    ...(addresses.length > 0 ? { addresses } : {}),
+    ...(hasAddresses ? { addresses } : {}),
     ...(mode === "replace" ? { mode: "replace" as const } : {}),
+    ...(customLines && customLines.length > 0 ? { customLines } : {}),
+    ...(rawCustomText.trim() ? { rawCustomText } : {}),
   };
 }
 
@@ -190,6 +276,11 @@ export function cfPreferredSpecsFromSources(
     if (!id || !cfg?.enabled) continue;
     const selected = normalizeCfPreferredAddresses(cfg.addresses);
     const mode: CfPreferredMode = cfg.mode === "replace" ? "replace" : "clone";
+    if (Array.isArray(cfg.addresses)) {
+      if (selected.length === 0) continue;
+      out[id] = { address: selected[0], addresses: selected, mode };
+      continue;
+    }
     if (selected.length > 0) {
       out[id] = { address: selected[0], addresses: selected, mode };
       continue;
@@ -205,6 +296,78 @@ export function cfPreferredStaticBySource(
   config: Record<string, unknown> | { sources?: unknown },
 ): Record<string, CfPreferredSpec> | undefined {
   return cfPreferredSpecsFromSources((config as Record<string, unknown>).sources, { skipApiUrls: true });
+}
+
+function carrierLookup(
+  sourcesItem: Record<string, unknown> | undefined,
+  pool: CfPreferredPoolConfig | undefined,
+): Map<string, CfPreferredCarrier> {
+  const map = new Map<string, CfPreferredCarrier>();
+  if (pool) {
+    for (const entry of pool.entries) map.set(entry.address, entry.carrier);
+  }
+  const preferred = isRecord(sourcesItem?.cfPreferred) ? sourcesItem.cfPreferred : undefined;
+  if (Array.isArray(preferred?.customLines)) {
+    for (const line of preferred.customLines) {
+      if (!isRecord(line) || typeof line.address !== "string") continue;
+      const address = line.address.trim();
+      const carrier = asCarrier(line.carrier);
+      if (address && carrier) map.set(address, carrier);
+    }
+  }
+  return map;
+}
+
+export function attachCfPreferredCarriers(
+  sources: unknown,
+  specs: Record<string, CfPreferredSpec> | undefined,
+  pool: CfPreferredPoolConfig | undefined,
+): Record<string, CfPreferredSpec> | undefined {
+  if (!specs) return specs;
+  const out: Record<string, CfPreferredSpec> = { ...specs };
+  const sourceById = new Map<string, Record<string, unknown>>();
+  if (Array.isArray(sources)) {
+    for (const item of sources) {
+      if (!isRecord(item)) continue;
+      const id = typeof item.id === "string" ? item.id.trim() : "";
+      if (id) sourceById.set(id, item);
+    }
+  }
+  for (const [id, spec] of Object.entries(out)) {
+    const lookup = carrierLookup(sourceById.get(id), pool);
+    const addrs = specAddresses(spec);
+    out[id] = {
+      ...spec,
+      entries: addrs.map((address) => {
+        const carrier = lookup.get(address) ?? spec.entries?.find((entry) => entry.address === address)?.carrier;
+        return carrier ? { address, carrier } : { address };
+      }),
+    };
+  }
+  return out;
+}
+
+export function finalizeCfPreferredSpecs(
+  sources: unknown,
+  existing: Record<string, CfPreferredSpec> | undefined,
+  pool: CfPreferredPoolConfig | undefined,
+): Record<string, CfPreferredSpec> | undefined {
+  return attachCfPreferredCarriers(
+    sources,
+    mergePlatformCfPreferredPool(sources, existing, pool),
+    pool,
+  );
+}
+
+export function resolveCfPreferredSpecs(
+  sources: unknown,
+  opts: { skipApiUrls?: boolean; platformPool?: CfPreferredPoolConfig | null } = {},
+): Record<string, CfPreferredSpec> | undefined {
+  return finalizeCfPreferredSpecs(
+    sources,
+    cfPreferredSpecsFromSources(sources, { skipApiUrls: opts.skipApiUrls }),
+    opts.platformPool ?? undefined,
+  );
 }
 
 function specForNode(
@@ -233,26 +396,42 @@ export function expandCfPreferredNodes(
     if (getCfPreferredMark(node) === "clone") return consumed.has(node) ? [] : [node];
     const spec = specForNode(node, rulesBySourceId);
     if (!spec || !isCfCdnNode(node)) return [node];
-    const addrs = specAddresses(spec);
-    if (addrs.length === 0) return [node];
-    if (spec.mode === "replace") return [buildCfReplacedNode(node, addrs[0])];
+    const entries = specEntries(spec);
+    if (entries.length === 0) return [node];
+    const seq = new Map<string, number>();
+    if (spec.mode === "replace") {
+      return entries.map((entry) => {
+        const replaced = buildCfReplacedNode(node, entry.address) as unknown as Record<string, unknown>;
+        const name = nextGroupCloneName(node.name, cloneTag(entry.carrier), seq, existingNames);
+        replaced.name = name;
+        existingNames.add(name);
+        return replaced as unknown as ParsedNode;
+      });
+    }
     const of = originKey(node);
     const result: ParsedNode[] = [node];
-    addrs.forEach((addr, index) => {
+    entries.forEach((entry) => {
       const existing = nodes.find(
         (candidate) =>
           getCfPreferredMark(candidate) === "clone" &&
           !consumed.has(candidate) &&
-          candidate.server === addr &&
+          candidate.server === entry.address &&
           (cloneTargetKey(candidate) === of || cloneTargetKey(candidate) === node.name),
       );
       if (existing) {
         consumed.add(existing);
-        result.push(existing);
+        if (isManagedCfCloneName(existing.name, of) || isManagedCfCloneName(existing.name, node.name)) {
+          const name = nextGroupCloneName(node.name, cloneTag(entry.carrier), seq, existingNames);
+          existingNames.add(name);
+          result.push(withCloneName(existing, name));
+        } else {
+          result.push(existing);
+        }
         return;
       }
-      const clone = buildCfPreferredClone(node, addr, nextCloneName(node.name, index, existingNames));
-      existingNames.add(clone.name);
+      const name = nextGroupCloneName(node.name, cloneTag(entry.carrier), seq, existingNames);
+      const clone = buildCfPreferredClone(node, entry.address, name);
+      existingNames.add(name);
       result.push(clone);
     });
     return result;
@@ -296,7 +475,14 @@ export function syncCfPreferredNodes(
   return next;
 }
 
-export function applyCfPreferredToNodes(nodes: ParsedNode[], sources: unknown): ParsedNode[] {
+export function applyCfPreferredToNodes(
+  nodes: ParsedNode[],
+  sources: unknown,
+  platformPool?: CfPreferredPoolConfig | null,
+): ParsedNode[] {
   // API 地址要等服务端解析，不能把 URL 写进节点 server
-  return syncCfPreferredNodes(nodes, cfPreferredSpecsFromSources(sources, { skipApiUrls: true }));
+  return syncCfPreferredNodes(
+    nodes,
+    resolveCfPreferredSpecs(sources, { skipApiUrls: true, platformPool }),
+  );
 }

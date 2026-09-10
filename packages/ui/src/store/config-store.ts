@@ -60,8 +60,12 @@ export const useConfigStore = create<ConfigState & ConfigActions>()(
 
           let nextPatch = patch as Partial<StoreState>;
           const next = { ...state, ...nextPatch } as StoreState;
-          if (nextPatch.nodes !== undefined || nextPatch.sources !== undefined) {
-            const synced = applyCfPreferredToNodes(next.nodes, next.sources);
+          if (
+            nextPatch.nodes !== undefined ||
+            nextPatch.sources !== undefined ||
+            nextPatch.cfPreferredPool !== undefined
+          ) {
+            const synced = applyCfPreferredToNodes(next.nodes, next.sources, next.cfPreferredPool);
             if (synced !== next.nodes) {
               nextPatch = { ...nextPatch, nodes: synced };
               next.nodes = synced;

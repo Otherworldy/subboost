@@ -15,6 +15,7 @@ model LocalAdmin {
   updatedAt    DateTime  @updatedAt
   lastLoginAt  DateTime?
   allowUnsafeSubscriptionSources Boolean @default(false)
+  cfPreferredPool                String?   @db.Text
 
   subscriptions Subscription[]
   templates      LocalTemplate[]

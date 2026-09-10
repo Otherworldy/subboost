@@ -8,6 +8,7 @@ const dbMocks = vi.hoisted(() => ({
   updateMany: vi.fn(async () => ({ count: 1 })),
   upsert: vi.fn(async (args) => args),
   transaction: vi.fn(),
+  findAdmin: vi.fn(async () => null),
 }));
 
 vi.mock("@local/lib/crypto", () => ({
@@ -22,6 +23,9 @@ vi.mock("@local/lib/crypto", () => ({
 
 vi.mock("@local/lib/prisma", () => ({
   prisma: {
+    localAdmin: {
+      findUnique: dbMocks.findAdmin,
+    },
     subscription: {
       findMany: dbMocks.findMany,
       updateMany: dbMocks.updateMany,

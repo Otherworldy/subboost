@@ -12,12 +12,16 @@ export function defaultCfPreferredConfig(
   current?: CfPreferredSourceConfig,
   enabled = true,
 ): CfPreferredSourceConfig {
+  const hasAddresses = Array.isArray(current?.addresses);
   const addresses = normalizeCfPreferredAddresses(current?.addresses);
   return {
     enabled,
+    strategy: current?.strategy ?? "platform",
     address: current?.address?.trim() || DEFAULT_ADDRESS,
     mode: current?.mode === "replace" ? "replace" : "clone",
-    ...(addresses.length > 0 ? { addresses } : {}),
+    ...(hasAddresses ? { addresses } : {}),
+    ...(current?.customLines ? { customLines: current.customLines } : {}),
+    ...(current?.rawCustomText ? { rawCustomText: current.rawCustomText } : {}),
   };
 }
 
@@ -34,12 +38,15 @@ export function SourceCfPreferredControls({
 }) {
   const enabled = source.cfPreferred?.enabled === true;
   const address = source.cfPreferred?.address?.trim() || DEFAULT_ADDRESS;
+  const isCustom = source.cfPreferred?.strategy === "custom";
   const selectedCount = normalizeCfPreferredAddresses(source.cfPreferred?.addresses).length;
   const modeText = source.cfPreferred?.mode === "replace" ? "直接替换" : "新增副本";
 
   const tooltip = enabled
-    ? `CF 优选已开启：${selectedCount > 0 ? `${selectedCount} 个入口` : address} (${modeText}) · 点击停用`
-    : "点击开启 CF 优选加速（高级编辑中可自定义地址与模式）";
+    ? isCustom
+      ? `CF 优选：专属覆盖 (${selectedCount > 0 ? `${selectedCount} 个入口` : address} · ${modeText}) · 点击停用`
+      : `CF 优选：继承平台池 (${selectedCount > 0 ? `${selectedCount} 个已选` : "全部活跃入口"} · ${modeText}) · 点击停用`
+    : "点击开启 CF 优选加速（高级编辑中可选择线路与模式）";
 
   return (
     <button

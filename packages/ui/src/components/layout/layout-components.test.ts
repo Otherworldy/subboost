@@ -38,6 +38,7 @@ vi.mock("lucide-react", () => ({
   Shield: () => React.createElement("span", null, "Shield"),
   User: () => React.createElement("span", null, "User"),
   X: () => React.createElement("span", null, "X"),
+  Zap: () => React.createElement("span", null, "Zap"),
 }));
 
 vi.mock("react-remove-scroll-bar", () => ({

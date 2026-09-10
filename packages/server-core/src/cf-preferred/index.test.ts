@@ -111,8 +111,8 @@ describe("resolveCfPreferredAddress / prepareCfPreferredRules", () => {
       return { ok: true, text: async () => "104.16.9.9" };
     }) as unknown as typeof fetch });
     expect(mapped).toEqual({
-      "src-a": { address: "cf.090227.xyz", mode: "clone" },
-      "src-b": { address: "104.16.9.9", mode: "replace" },
+      "src-a": { address: "cf.090227.xyz", mode: "clone", entries: [{ address: "cf.090227.xyz" }] },
+      "src-b": { address: "104.16.9.9", mode: "replace", entries: [{ address: "104.16.9.9" }] },
     });
   });
 
@@ -130,7 +130,47 @@ describe("resolveCfPreferredAddress / prepareCfPreferredRules", () => {
       ],
     }, { fetchImpl: fetchReturning("104.16.9.9") });
     expect(mapped).toEqual({
-      "src-a": { address: "1.1.1.1", addresses: ["1.1.1.1", "2.2.2.2"], mode: "clone" },
+      "src-a": {
+        address: "1.1.1.1",
+        addresses: ["1.1.1.1", "2.2.2.2"],
+        mode: "clone",
+        entries: [{ address: "1.1.1.1" }, { address: "2.2.2.2" }],
+      },
     });
   });
+
+  it("prepareCfPreferredRules：平台池注入未覆盖的源，保留已勾选入口",
+    async () => {
+      const mapped = await prepareCfPreferredRules(
+        {
+          sources: [
+            { id: "src-keep", cfPreferred: { enabled: true, addresses: ["9.9.9.9"] } },
+            { id: "src-new" },
+          ],
+        },
+        {
+          platformPool: {
+            enabled: true,
+            mode: "replace",
+            probeIntervalMinutes: 15,
+            entries: [{ id: "e1", address: "1.1.1.1", carrier: "telecom", enabled: true }],
+          },
+        },
+      );
+      expect(mapped).toEqual({
+        "src-keep": {
+          address: "9.9.9.9",
+          addresses: ["9.9.9.9"],
+          mode: "clone",
+          entries: [{ address: "9.9.9.9" }],
+        },
+        "src-new": {
+          address: "1.1.1.1",
+          addresses: ["1.1.1.1"],
+          mode: "replace",
+          entries: [{ address: "1.1.1.1", carrier: "telecom" }],
+        },
+      });
+    },
+  );
 });

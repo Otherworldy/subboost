@@ -60,6 +60,7 @@ vi.mock("lucide-react", () => ({
   Trash2: () => null,
   Upload: () => null,
   X: () => null,
+  Zap: () => null,
 }));
 vi.mock("@subboost/ui/components/ui/button", () => ({
   Button: (props: any) => {

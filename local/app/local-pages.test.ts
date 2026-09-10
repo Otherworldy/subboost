@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   buttons: [] as any[],
   dashboardAdapter: null as any,
+  cfPreferredAdapter: null as any,
   homeAdapter: null as any,
   readJsonResponse: vi.fn(),
   readSourceImportResponse: vi.fn(),
@@ -45,6 +46,13 @@ vi.mock("@subboost/ui/components/ui/switch", () => ({
   },
 }));
 
+vi.mock("@subboost/ui/dashboard/cf-preferred-pool-surface", () => ({
+  CfPreferredPoolSurface: (props: any) => {
+    mocks.cfPreferredAdapter = props.adapter;
+    return React.createElement("main", null, "CfPreferredSurface");
+  },
+}));
+
 vi.mock("@subboost/ui/dashboard/subscription-dashboard-surface", () => ({
   SubscriptionDashboardSurface: (props: any) => {
     mocks.dashboardAdapter = props.adapter;
@@ -80,6 +88,7 @@ vi.mock("@local/components/local-login", () => ({
 }));
 
 import DashboardPage from "./dashboard/page";
+import CfPreferredPage from "./dashboard/cf/page";
 import LoginPage from "./login/page";
 import SettingsPage from "./dashboard/settings/page";
 import manifest from "./manifest";
@@ -91,6 +100,7 @@ describe("local app pages and adapters", () => {
     vi.clearAllMocks();
     vi.unstubAllGlobals();
     mocks.dashboardAdapter = null;
+    mocks.cfPreferredAdapter = null;
     mocks.homeAdapter = null;
     mocks.templateAdapter = null;
     mocks.buttons = [];
@@ -196,6 +206,28 @@ describe("local app pages and adapters", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/subscriptions/sub%201", { method: "DELETE" });
     expect(fetchMock).toHaveBeenCalledWith("/api/subscriptions/sub%201/refresh", expect.objectContaining({ method: "POST" }));
     expect(fetchMock).toHaveBeenCalledWith("/api/subscriptions/sub%201", expect.objectContaining({ method: "PUT" }));
+    expect(adapter.cfPreferredHref).toBe("/dashboard/cf");
+  });
+
+  it("connects the CF preferred pool adapter to local pool routes", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    mocks.readJsonResponse
+      .mockResolvedValueOnce({ pool: { enabled: false, entries: [] }, subscriptionCount: 1 })
+      .mockResolvedValueOnce({ pool: { enabled: true, entries: [] } })
+      .mockResolvedValueOnce({ pool: { enabled: true, entries: [] } })
+      .mockResolvedValueOnce({ candidates: [{ ip: "1.1.1.1", ms: 12 }] });
+
+    renderToStaticMarkup(React.createElement(CfPreferredPage));
+    const adapter = mocks.cfPreferredAdapter;
+
+    await expect(adapter.fetchPool()).resolves.toEqual({ pool: { enabled: false, entries: [] }, subscriptionCount: 1 });
+    await expect(adapter.savePool({ enabled: true, entries: [] })).resolves.toEqual({ enabled: true, entries: [] });
+    await expect(adapter.probePool()).resolves.toEqual({ enabled: true, entries: [] });
+    await expect(adapter.resolveAddress("cf.example.com")).resolves.toEqual([{ ip: "1.1.1.1", ms: 12 }]);
+    expect(fetchMock).toHaveBeenCalledWith("/api/cf-preferred/pool", { cache: "no-store" });
+    expect(fetchMock).toHaveBeenCalledWith("/api/cf-preferred/pool", expect.objectContaining({ method: "PUT" }));
+    expect(fetchMock).toHaveBeenCalledWith("/api/cf-preferred/pool", expect.objectContaining({ method: "POST" }));
   });
 
   it("connects the template library adapter to local template routes", async () => {

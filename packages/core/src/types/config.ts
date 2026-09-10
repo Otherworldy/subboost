@@ -213,13 +213,64 @@ export interface UserConfig {
 
 export type CfPreferredMode = "clone" | "replace";
 
+export type CfPreferredStrategy = "platform" | "custom";
+
+export interface CfPreferredCustomEntry {
+  address: string;
+  label?: string;
+  carrier?: CfPreferredCarrier;
+  ms?: number | null;
+}
+
 /** 挂在订阅源上的 CF 优选配置（开关 + 地址 + 选用入口 + 新增副本/替换原节点） */
 export interface CfPreferredSourceConfig {
   enabled?: boolean;
+  strategy?: CfPreferredStrategy;
   address?: string;
-  /** 测速后勾选的多个入口；为空则回退到 address */
+  /** 测速后勾选的多个入口；为空则回退到 address，平台模式下为空则自动使用平台池活跃入口 */
   addresses?: string[];
   mode?: CfPreferredMode;
+  /** 专属覆盖模式下保存的解析条目 */
+  customLines?: CfPreferredCustomEntry[];
+  rawCustomText?: string;
+}
+
+export const CF_PREFERRED_CARRIERS = ["optimized", "telecom", "unicom", "mobile", "global"] as const;
+export type CfPreferredCarrier = (typeof CF_PREFERRED_CARRIERS)[number];
+
+export const CF_PREFERRED_CARRIER_LABELS: Record<CfPreferredCarrier, string> = {
+  optimized: "三网优化",
+  telecom: "中国电信",
+  unicom: "中国联通",
+  mobile: "中国移动",
+  global: "兜底 / 海外",
+};
+
+/** 平台级 CF 入口池中的一条入口 */
+export interface CfPreferredPoolEntry {
+  id: string;
+  address: string;
+  carrier: CfPreferredCarrier;
+  enabled: boolean;
+  pop?: string;
+  ms?: number | null;
+  probedAt?: string;
+}
+
+export interface CfPreferredPoolProbeLog {
+  at: string;
+  ok: number;
+  failed: number;
+  message: string;
+}
+
+/** 实例级入口池：一份共享 IP 列表，生成时注入所有订阅 */
+export interface CfPreferredPoolConfig {
+  enabled: boolean;
+  mode: CfPreferredMode;
+  probeIntervalMinutes: number;
+  entries: CfPreferredPoolEntry[];
+  lastProbe?: CfPreferredPoolProbeLog;
 }
 
 export interface CustomRule {

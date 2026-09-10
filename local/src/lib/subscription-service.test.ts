@@ -30,6 +30,7 @@ const mocks = vi.hoisted(() => ({
   fetchSourceUserInfoHeadersDirect: vi.fn(),
   runMihomoHealthCheck: vi.fn(),
   getAppUrl: vi.fn(),
+  loadEnabledCfPreferredPool: vi.fn(),
   prisma: {
     subscription: {
       findMany: vi.fn(),
@@ -78,6 +79,7 @@ vi.mock("./crypto", () => ({
   encryptJson: (value: unknown) => JSON.stringify(value),
   decryptJson: (value: string | null | undefined, fallback: unknown) => {
     if (!value) return fallback;
+    if (value === "__THROW__") throw new Error("bad key");
     try {
       return JSON.parse(value);
     } catch {
@@ -101,6 +103,11 @@ vi.mock("./env", () => ({
 
 vi.mock("./prisma", () => ({
   prisma: mocks.prisma,
+}));
+
+vi.mock("./cf-preferred-pool", () => ({
+  loadEnabledCfPreferredPool: mocks.loadEnabledCfPreferredPool,
+  readCfPreferredPool: mocks.loadEnabledCfPreferredPool,
 }));
 
 vi.mock("./source-import", () => ({
@@ -157,6 +164,7 @@ function row(overrides: Partial<SubscriptionRow> = {}): SubscriptionRow {
 describe("local subscription service", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.loadEnabledCfPreferredPool.mockResolvedValue(undefined);
     mocks.getAppUrl.mockReturnValue("http://127.0.0.1:3001");
     mocks.prepareRefreshCacheResult.mockReturnValue({ ok: true, nodeCount: 1 });
     mocks.refreshNodeSnapshot.mockResolvedValue({
@@ -428,6 +436,11 @@ describe("local subscription service", () => {
 
   it("lists, gets, and deletes subscriptions through prisma", async () => {
     await expect(listSubscriptions("owner-1")).resolves.toHaveLength(1);
+    mocks.prisma.subscription.findMany.mockResolvedValueOnce([
+      row({ id: "ok" }),
+      row({ id: "bad", encryptedUrls: "__THROW__" }),
+    ]);
+    await expect(listSubscriptions("owner-1")).resolves.toEqual([expect.objectContaining({ id: "ok" })]);
     expect(mocks.prisma.subscription.findMany).toHaveBeenCalledWith({
       where: { ownerId: "owner-1" },
       include: { autoUpdateState: true },

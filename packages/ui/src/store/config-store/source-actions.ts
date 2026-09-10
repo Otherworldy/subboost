@@ -123,7 +123,7 @@ export function createSourceActions(set: SetState, get: GetState, setAndGenerate
         if (cfPreferredChanged) {
           setAndGenerateConfig((state) => ({
             sources,
-            nodes: applyCfPreferredToNodes(state.nodes, sources),
+            nodes: applyCfPreferredToNodes(state.nodes, sources, state.cfPreferredPool),
           }));
         } else set({ sources });
         return;
@@ -150,7 +150,7 @@ export function createSourceActions(set: SetState, get: GetState, setAndGenerate
 
         return {
           sources,
-          nodes: applyCfPreferredToNodes(nextNodes, sources),
+          nodes: applyCfPreferredToNodes(nextNodes, sources, state.cfPreferredPool),
           listenerPorts: nextListenerPorts,
           dialerProxyGroups: nextDialerProxyGroups,
         };

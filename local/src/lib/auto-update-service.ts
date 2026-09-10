@@ -28,6 +28,7 @@ import {
   type SubscriptionRow,
 } from "./subscription-service";
 import { LOCAL_AUTO_UPDATE_MIN_SECONDS } from "./auto-update-policy";
+import { readCfPreferredPool } from "./cf-preferred-pool";
 import { JobLeaseLostError } from "./job-lease";
 
 type AutoUpdateSubscriptionRow = SubscriptionRow & {
@@ -104,6 +105,7 @@ async function prepareLocalRefresh(
     config: secrets.config,
     snapshot,
     maxNodesPerSubscription: MAX_NODES_PER_SUBSCRIPTION,
+    platformPool: await readCfPreferredPool(subscription.ownerId),
   });
 
   return {

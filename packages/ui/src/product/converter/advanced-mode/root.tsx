@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useCfPreferredPoolSync } from "../use-cf-preferred-pool";
 import { DialerProxyGroupsSection } from "./sections/dialer-proxy-groups-section";
 import { DnsSection } from "./sections/dns-section";
 import { InputSection } from "./sections/input-section";
@@ -11,8 +12,9 @@ import { RulesManagementSection } from "./sections/rules-management-section";
 type SectionKey = "input" | "filter" | "chain" | "proxy" | "rules" | "dns";
 
 export function AdvancedMode() {
-  const [expandedSections, setExpandedSections] = React.useState<Set<SectionKey>>(
-    new Set<SectionKey>(["input", "filter", "chain", "proxy", "rules", "dns"])
+  useCfPreferredPoolSync();
+  const [expandedSections, setExpandedSections] = React.useState(
+    () => new Set<SectionKey>(["input", "filter", "chain", "proxy", "rules", "dns"]),
   );
 
   const toggleSection = (section: SectionKey) => {

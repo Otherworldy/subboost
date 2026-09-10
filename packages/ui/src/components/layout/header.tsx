@@ -13,6 +13,7 @@ import {
   X,
   LogIn,
   Shield,
+  Zap,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@subboost/ui/lib/utils";
@@ -52,11 +53,16 @@ const defaultNavItems: NavItem[] = [
 
 const localNavItems: NavItem[] = [
   ...sharedNavItems,
+  { href: "/dashboard/cf", label: "CF 优选", icon: Zap, authOnly: true },
 ];
 
-function isNavItemActive(pathname: string, href: string): boolean {
+function isNavItemActive(pathname: string, href: string, items: NavItem[] = []): boolean {
   if (href === "/") return pathname === "/";
-  return pathname === href || pathname.startsWith(`${href}/`);
+  if (pathname === href) return true;
+  if (!pathname.startsWith(`${href}/`)) return false;
+  return !items.some(
+    (item) => item.href !== href && (pathname === item.href || pathname.startsWith(`${item.href}/`)),
+  );
 }
 
 function BrandBadge({ badge, tone = "default" }: { badge: HeaderBrandBadge; tone?: "default" | "new" }) {
@@ -151,7 +157,7 @@ export function Header({
           {/* Desktop Navigation */}
           <nav className="hidden md:flex items-center rounded-full border border-white/10 bg-white/[0.04] p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
             {visibleNavItems.map((item) => {
-              const isActive = isNavItemActive(pathname, item.href);
+              const isActive = isNavItemActive(pathname, item.href, visibleNavItems);
               return (
                 <Link
                   key={item.href}
@@ -212,7 +218,7 @@ export function Header({
           <div id="subboost-mobile-navigation" className="md:hidden border-t border-white/10 py-4">
             <nav className="flex flex-col gap-1">
               {visibleNavItems.map((item) => {
-                const isActive = isNavItemActive(pathname, item.href);
+                const isActive = isNavItemActive(pathname, item.href, visibleNavItems);
                 return (
                   <Link
                     key={item.href}

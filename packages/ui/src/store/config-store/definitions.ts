@@ -1,6 +1,7 @@
 import type { ParsedNode, ParseResult } from "@subboost/core/types/node";
 import type {
   BuiltinRuleEdits,
+  CfPreferredPoolConfig,
   CfPreferredSourceConfig,
   CustomProxyGroup,
   CustomRule,
@@ -251,6 +252,9 @@ export interface ConfigState {
   // 分组监听：按稳定 ID 给策略组绑定 mixed inbound 端口（用于生成 listeners）
   groupListeners: GroupListenerBinding[];
 
+  // 平台 CF 入口池（运行时拉取，不写入草稿）
+  cfPreferredPool: CfPreferredPoolConfig | null;
+
   // 生成结果
   generatedYaml: string;
   generatedYamlError: string | null;
@@ -351,6 +355,8 @@ export interface ConfigActions {
     config: { port: number; enabled?: boolean; allowLan?: boolean } | null
   ) => void;
 
+  setCfPreferredPool: (pool: CfPreferredPoolConfig | null) => void;
+
   // 生成配置
   generateConfig: () => string;
   setGeneratedYaml: (yaml: string) => void;
@@ -418,6 +424,7 @@ export const initialState: ConfigState = {
   experimentalCnUseCnRuleSet: DEFAULT_SUBBOOST_CONFIG.experimentalCnUseCnRuleSet,
   listenerPorts: {},
   groupListeners: [],
+  cfPreferredPool: null,
   generatedYaml: "",
   generatedYamlError: null,
   history: [],

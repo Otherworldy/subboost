@@ -7,6 +7,7 @@ import { filterNodesByHealth } from "@subboost/core/subscription/node-health";
 import { buildProxyProvidersFromConfig } from "@subboost/core/subscription/proxy-providers";
 import { resolveNodeNameFilter } from "@subboost/core/subscription/node-name-filter";
 import { prepareCfPreferredRules } from "../cf-preferred";
+import type { CfPreferredPoolConfig } from "@subboost/core/types/config";
 import type { ParsedNode } from "@subboost/core/types/node";
 import type { SubscriptionResponseInfo } from "@subboost/core/subscription/subscription-response-info";
 import type { RefreshNodeSnapshotResult } from "./refresh-node-snapshot";
@@ -47,6 +48,7 @@ export async function prepareRefreshCacheResult(params: {
   snapshot: RefreshNodeSnapshotResult;
   maxNodesPerSubscription: number;
   proxyProviders?: Record<string, unknown>;
+  platformPool?: CfPreferredPoolConfig;
 }): Promise<PreparedRefreshCacheResult> {
   const { testUrl, testInterval } = getEffectiveTestOptions(params.config);
   const proxyProviders =
@@ -107,7 +109,9 @@ export async function prepareRefreshCacheResult(params: {
       nodes: params.snapshot.nodes,
       proxyProviders,
       // CF 优选规则在此解析为最新 IP（带 TTL 缓存与失败回退）
-      cfPreferredBySource: await prepareCfPreferredRules(params.config),
+      cfPreferredBySource: await prepareCfPreferredRules(params.config, {
+        platformPool: params.platformPool,
+      }),
     })
   );
 

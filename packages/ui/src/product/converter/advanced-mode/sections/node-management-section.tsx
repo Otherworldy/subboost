@@ -9,10 +9,7 @@ import { Input } from "@subboost/ui/components/ui/input";
 import { SwitchField } from "@subboost/ui/components/ui/switch-field";
 import { toast } from "@subboost/ui/components/ui/toaster";
 import { DEFAULT_NODE_NAME_TEMPLATE } from "@subboost/core/node-name-template";
-import {
-  cfPreferredSpecsFromSources,
-  expandCfPreferredNodes,
-} from "@subboost/core/subscription/cf-preferred";
+import { expandCfPreferredNodes, resolveCfPreferredSpecs } from "@subboost/core/subscription/cf-preferred";
 import {
   DEFAULT_NODE_NAME_FILTER_CONFIG,
   resolveNodeNameFilter,
@@ -81,6 +78,7 @@ export function NodeManagementSection({
     setListenerPort,
     bulkSetListenerPorts,
     setNodeNameFilter,
+    cfPreferredPool,
   } = useConfigStore();
 
   const normalizedNodeNameFilter = nodeNameFilter ?? DEFAULT_NODE_NAME_FILTER_CONFIG;
@@ -93,9 +91,9 @@ export function NodeManagementSection({
     () =>
       expandCfPreferredNodes(
         effectiveNodes,
-        cfPreferredSpecsFromSources(sources, { skipApiUrls: false }),
+        resolveCfPreferredSpecs(sources, { skipApiUrls: false, platformPool: cfPreferredPool }),
       ),
-    [effectiveNodes, sources],
+    [effectiveNodes, sources, cfPreferredPool],
   );
   const hasProxyProviders = React.useMemo(
     () => sources.some(canGenerateProxyProvider),

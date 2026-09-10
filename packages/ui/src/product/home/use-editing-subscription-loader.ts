@@ -550,7 +550,11 @@ export function useEditingSubscriptionLoader({
 
         useConfigStore.setState((state) => ({
           ...state,
-          nodes: applyCfPreferredToNodes(hydratedNodes, rebuiltSourcesWithStatus),
+          nodes: applyCfPreferredToNodes(
+            hydratedNodes,
+            rebuiltSourcesWithStatus,
+            useConfigStore.getState().cfPreferredPool,
+          ),
           deletedNodeNames: deletedNodeNamesMerged.length > 0 ? deletedNodeNamesMerged : state.deletedNodeNames,
           deletedNodes:
             deletedNodesFromCfg.length > 0

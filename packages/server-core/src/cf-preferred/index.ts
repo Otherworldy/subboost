@@ -6,11 +6,13 @@
  */
 import net from "node:net";
 import {
+  finalizeCfPreferredSpecs,
   isCfPreferredApiUrl,
   normalizeCfPreferredAddresses,
   normalizeCfPreferredSourceConfig,
   type CfPreferredSpec,
 } from "@subboost/core/subscription/cf-preferred";
+import type { CfPreferredPoolConfig } from "@subboost/core/types/config";
 import { resolveHostnameByDoh } from "../subscription/doh-resolver";
 import { isPrivateOrReservedIp } from "../subscription/ssrf-ip";
 
@@ -139,7 +141,11 @@ export function clearCfPreferredResolveCache(): void {
   lastKnownGood.clear();
 }
 
-export type ResolveCfPreferredDeps = { fetchImpl?: typeof fetch; dohResolve?: typeof resolveHostnameByDoh };
+export type ResolveCfPreferredDeps = {
+  fetchImpl?: typeof fetch;
+  dohResolve?: typeof resolveHostnameByDoh;
+  platformPool?: CfPreferredPoolConfig;
+};
 
 /**
  * 静态地址直接返回；API URL 拉取后选延迟最低的 IP。
@@ -189,6 +195,11 @@ export async function prepareCfPreferredRules(
     if (!id || !cfg?.enabled || out[id]) continue;
     const mode = cfg.mode === "replace" ? "replace" : "clone";
     const selected = normalizeCfPreferredAddresses(cfg.addresses);
+    if (Array.isArray(cfg.addresses)) {
+      if (selected.length === 0) continue;
+      out[id] = { address: selected[0], addresses: selected, mode };
+      continue;
+    }
     if (selected.length > 0) {
       out[id] = { address: selected[0], addresses: selected, mode };
       continue;
@@ -197,5 +208,9 @@ export async function prepareCfPreferredRules(
     const resolved = await resolveCfPreferredAddress(cfg.address, deps);
     if (resolved) out[id] = { address: resolved, mode };
   }
-  return Object.keys(out).length > 0 ? out : undefined;
+  return finalizeCfPreferredSpecs(
+    sources,
+    Object.keys(out).length > 0 ? out : undefined,
+    deps.platformPool,
+  );
 }

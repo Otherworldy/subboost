@@ -86,6 +86,27 @@ describe("normalizeCfPreferredSourceConfig / cfPreferredStaticBySource", () => {
       address: "cf.090227.xyz",
       addresses: ["1.1.1.1", "2.2.2.2"],
     });
+    expect(
+      normalizeCfPreferredSourceConfig({
+        enabled: true,
+        strategy: "custom",
+        address: "1.1.1.1",
+        addresses: ["1.1.1.1"],
+        customLines: [
+          { address: " 1.1.1.1 ", label: "电信", carrier: "telecom", ms: 80 },
+          { address: "https://x" },
+          { address: "1.1.1.1" },
+        ],
+        rawCustomText: "1.1.1.1#电信",
+      }),
+    ).toEqual({
+      enabled: true,
+      strategy: "custom",
+      address: "1.1.1.1",
+      addresses: ["1.1.1.1"],
+      customLines: [{ address: "1.1.1.1", label: "电信", carrier: "telecom", ms: 80 }],
+      rawCustomText: "1.1.1.1#电信",
+    });
 
     const sources = [
       { id: "src-a", cfPreferred: { enabled: true, address: "cf.090227.xyz" } },
@@ -109,7 +130,7 @@ describe("expandCfPreferredNodes", () => {
     expect(out).toHaveLength(2);
     expect(out[0].server).toBe("hk.example.com");
     const clone = out[1] as Record<string, unknown>;
-    expect(clone.name).toBe("香港 IEPL-01-CF");
+    expect(clone.name).toBe("香港 IEPL-01-优选1");
     expect(clone.server).toBe("cf.090227.xyz");
     expect(clone.servername).toBe("hk.example.com");
     expect(clone[CF_PREFERRED_MARK_KEY]).toBe("clone");
@@ -117,13 +138,21 @@ describe("expandCfPreferredNodes", () => {
     expect(getCfPreferredMark(out[1])).toBe("clone");
   });
 
-  it("replace：直接改入口，不增加节点、名字不变", () => {
+  it("replace：直接改入口，按分组命名", () => {
     const out = expandCfPreferredNodes([vlessWsTls()], { "src-a": { address: "1.2.3.4", mode: "replace" } });
     expect(out).toHaveLength(1);
-    expect(out[0].name).toBe("香港 IEPL-01");
+    expect(out[0].name).toBe("香港 IEPL-01-优选1");
     expect(out[0].server).toBe("1.2.3.4");
     expect((out[0] as unknown as Record<string, unknown>).servername).toBe("hk.example.com");
     expect(getCfPreferredMark(out[0])).toBe("replace");
+  });
+
+  it("replace 多个入口：每个 IP 一条节点，首条保留原名", () => {
+    const out = expandCfPreferredNodes([vlessWsTls()], {
+      "src-a": { address: "1.1.1.1", addresses: ["1.1.1.1", "2.2.2.2"], mode: "replace" },
+    });
+    expect(out.map((n) => n.name)).toEqual(["香港 IEPL-01-优选1", "香港 IEPL-01-优选2"]);
+    expect(out.map((n) => n.server)).toEqual(["1.1.1.1", "2.2.2.2"]);
   });
 
   it("未绑定该源 / 非 CF 节点 / 空规则 → 原样", () => {
@@ -155,9 +184,9 @@ describe("expandCfPreferredNodes", () => {
     });
     expect(out).toHaveLength(3);
     expect(out[0].name).toBe("A");
-    expect(out[1].name).toBe("A-CF");
+    expect(out[1].name).toBe("A-优选1");
     expect(out[1].server).toBe("1.1.1.1");
-    expect(out[2].name).toBe("B");
+    expect(out[2].name).toBe("B-优选1");
     expect(out[2].server).toBe("2.2.2.2");
   });
 });
@@ -174,7 +203,7 @@ describe("buildCfPreferredClone", () => {
     });
     expect(clone._health).toBeUndefined();
     expect(clone[CF_PREFERRED_OF_KEY]).toBe("香港 IEPL-01");
-    expect(clone._originName).toBe("香港 IEPL-01-CF");
+    expect(clone._originName).toBe("香港 IEPL-01-CF"); // 直接调用 helper 时默认仍是 -CF
   });
 });
 
@@ -193,12 +222,33 @@ describe("expandCfPreferredNodes idempotent / syncCfPreferredNodes", () => {
     const out = expandCfPreferredNodes([vlessWsTls()], {
       "src-a": { address: "1.1.1.1", addresses: ["1.1.1.1", "2.2.2.2"], mode: "clone" },
     });
-    expect(out.map((n) => n.name)).toEqual(["香港 IEPL-01", "香港 IEPL-01-CF", "香港 IEPL-01-CF2"]);
+    expect(out.map((n) => n.name)).toEqual(["香港 IEPL-01", "香港 IEPL-01-优选1", "香港 IEPL-01-优选2"]);
     expect(out[1].server).toBe("1.1.1.1");
     expect(out[2].server).toBe("2.2.2.2");
   });
 
-  it("关掉源时丢掉副本；改地址时只改入口并保留名字和测活", () => {
+  it("按运营商分组命名副本", () => {
+    const out = expandCfPreferredNodes([vlessWsTls()], {
+      "src-a": {
+        address: "1.1.1.1",
+        addresses: ["1.1.1.1", "1.0.0.1", "2.2.2.2"],
+        entries: [
+          { address: "1.1.1.1", carrier: "mobile" },
+          { address: "1.0.0.1", carrier: "mobile" },
+          { address: "2.2.2.2", carrier: "telecom" },
+        ],
+        mode: "clone",
+      },
+    });
+    expect(out.map((n) => n.name)).toEqual([
+      "香港 IEPL-01",
+      "香港 IEPL-01-移动优选1",
+      "香港 IEPL-01-移动优选2",
+      "香港 IEPL-01-电信优选1",
+    ]);
+  });
+
+  it("关掉源时丢掉副本；改地址时只改入口并保留测活", () => {
     const original = vlessWsTls();
     const clone = {
       ...buildCfPreferredClone(original, "1.2.3.4"),
@@ -207,7 +257,7 @@ describe("expandCfPreferredNodes idempotent / syncCfPreferredNodes", () => {
     expect(syncCfPreferredNodes([original, clone], undefined).map((n) => n.name)).toEqual(["香港 IEPL-01"]);
     const updated = syncCfPreferredNodes([original, clone], { "src-a": { address: "9.9.9.9", mode: "clone" } });
     expect(updated).toHaveLength(2);
-    expect(updated[1].name).toBe("香港 IEPL-01-CF");
+    expect(updated[1].name).toBe("香港 IEPL-01-优选1");
     expect(updated[1].server).toBe("9.9.9.9");
     expect((updated[1] as unknown as Record<string, unknown>)._health).toEqual({
       s1: { status: "ok", delayMs: 40, checkedAt: "t" },
@@ -218,7 +268,7 @@ describe("expandCfPreferredNodes idempotent / syncCfPreferredNodes", () => {
     const out = applyCfPreferredToNodes([vlessWsTls()], [
       { id: "src-a", cfPreferred: { enabled: true, address: "1.1.1.1" } },
     ]);
-    expect(out.map((n) => n.name)).toEqual(["香港 IEPL-01", "香港 IEPL-01-CF"]);
+    expect(out.map((n) => n.name)).toEqual(["香港 IEPL-01", "香港 IEPL-01-优选1"]);
     expect(out[1].server).toBe("1.1.1.1");
   });
 
@@ -229,7 +279,26 @@ describe("expandCfPreferredNodes idempotent / syncCfPreferredNodes", () => {
         cfPreferred: { enabled: true, address: "https://cf.example.com/ct", addresses: ["1.1.1.1", "8.8.8.8"] },
       },
     ]);
-    expect(out.map((n) => n.name)).toEqual(["香港 IEPL-01", "香港 IEPL-01-CF", "香港 IEPL-01-CF2"]);
+    expect(out.map((n) => n.name)).toEqual(["香港 IEPL-01", "香港 IEPL-01-优选1", "香港 IEPL-01-优选2"]);
+    expect(out[1].server).toBe("1.1.1.1");
+    expect(out[2].server).toBe("8.8.8.8");
+  });
+
+  it("applyCfPreferredToNodes 继承平台池时按入口数生成副本", () => {
+    const out = applyCfPreferredToNodes(
+      [vlessWsTls()],
+      [{ id: "src-a", cfPreferred: { enabled: true } }],
+      {
+        enabled: false,
+        mode: "clone",
+        probeIntervalMinutes: 15,
+        entries: [
+          { id: "a", address: "1.1.1.1", carrier: "telecom", enabled: true },
+          { id: "b", address: "8.8.8.8", carrier: "unicom", enabled: true },
+        ],
+      },
+    );
+    expect(out.map((n) => n.name)).toEqual(["香港 IEPL-01", "香港 IEPL-01-电信优选1", "香港 IEPL-01-联通优选1"]);
     expect(out[1].server).toBe("1.1.1.1");
     expect(out[2].server).toBe("8.8.8.8");
   });

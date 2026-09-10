@@ -112,7 +112,7 @@ describe("createSourceActions", () => {
         cfPreferred: { enabled: true, address: "1.1.1.1" },
       }),
     ]);
-    expect(getState().nodes.map((item: ParsedNode) => item.name)).toEqual(["日本", "日本-CF"]);
+    expect(getState().nodes.map((item: ParsedNode) => item.name)).toEqual(["日本", "日本-优选1"]);
     expect(getState().nodes[1].server).toBe("1.1.1.1");
 
     actions.setSources([existing]);
