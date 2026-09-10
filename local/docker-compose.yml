@@ -25,6 +25,8 @@ services:
         APP_BUILD_SHA: ${APP_BUILD_SHA:-}
         APP_VERSION: ${APP_VERSION:-}
         APP_VERSION_TOKEN: ${APP_VERSION_TOKEN:-}
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com}
+        PRISMA_ENGINES_MIRROR: ${PRISMA_ENGINES_MIRROR:-https://registry.npmmirror.com/-/binary/prisma}
     restart: unless-stopped
     depends_on:
       db:

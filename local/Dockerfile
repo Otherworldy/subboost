@@ -2,6 +2,15 @@ FROM node:22-alpine AS deps
 WORKDIR /package
 RUN apk add --no-cache openssl
 
+# 默认官方源；compose 国内构建会传入 npmmirror。replace-registry-host=always 才会改写 lock 里的 tarball URL。
+ARG NPM_REGISTRY=https://registry.npmjs.org
+ARG PRISMA_ENGINES_MIRROR=
+ENV NPM_CONFIG_REGISTRY=${NPM_REGISTRY} \
+    NPM_CONFIG_REPLACE_REGISTRY_HOST=always \
+    NPM_CONFIG_FETCH_RETRIES=5 \
+    NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=20000 \
+    NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=120000
+
 COPY package.json package-lock.json ./
 COPY packages/core packages/core
 COPY packages/server-core packages/server-core
@@ -11,6 +20,7 @@ COPY local/package.json local/package.json
 
 RUN --mount=type=cache,target=/root/.npm,sharing=locked \
     set -eu; \
+    if [ -n "${PRISMA_ENGINES_MIRROR:-}" ]; then export PRISMA_ENGINES_MIRROR; fi; \
     attempt=1; \
     max_attempts=3; \
     until npm ci; do \
@@ -31,6 +41,7 @@ FROM node:22-alpine AS builder
 WORKDIR /package
 RUN apk add --no-cache openssl
 
+ARG PRISMA_ENGINES_MIRROR=
 ARG APP_RELEASE_VERSION=
 ARG APP_BUILD_SHA=
 ARG APP_VERSION=
@@ -48,7 +59,8 @@ COPY packages/config packages/config
 COPY local local
 
 WORKDIR /package/local
-RUN npm run build
+RUN if [ -n "${PRISMA_ENGINES_MIRROR:-}" ]; then export PRISMA_ENGINES_MIRROR; fi; \
+    npm run build
 
 FROM deps AS production-deps
 RUN npm prune --omit=dev
