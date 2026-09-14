@@ -47,23 +47,62 @@ function entryId(carrier: CfPreferredCarrier, address: string, explicit?: string
   return `cfp-${carrier}-${address.replace(/[^a-zA-Z0-9]+/g, "-")}`.slice(0, 80);
 }
 
+function asProbeMs(value: unknown): number | null | undefined {
+  if (value === null) return null;
+  if (typeof value === "number" && Number.isFinite(value)) return Math.max(0, Math.round(value));
+  return undefined;
+}
+
+/** 注入排序：有浏览器结果用浏览器（含不通），否则服务器，再回退旧 ms */
+export function effectivePoolEntryMs(
+  entry: Pick<CfPreferredPoolEntry, "ms" | "browserMs" | "serverMs">,
+): number | null | undefined {
+  if (entry.browserMs !== undefined) return entry.browserMs;
+  if (entry.serverMs !== undefined) return entry.serverMs;
+  return entry.ms;
+}
+
+export function withPoolEntryProbe(
+  entry: CfPreferredPoolEntry,
+  from: "browser" | "server",
+  ms: number | null,
+  probedAt: string,
+): CfPreferredPoolEntry {
+  const next: CfPreferredPoolEntry =
+    from === "browser"
+      ? { ...entry, browserMs: ms, probedAt, probeFrom: from }
+      : { ...entry, serverMs: ms, probedAt, probeFrom: from };
+  const effective = effectivePoolEntryMs(next);
+  return effective !== undefined ? { ...next, ms: effective } : next;
+}
+
 function normalizeEntry(value: unknown): CfPreferredPoolEntry | undefined {
   if (!isRecord(value)) return undefined;
   const address = typeof value.address === "string" ? value.address.trim() : "";
   if (!address || address.length > 256 || /^https?:\/\//i.test(address)) return undefined;
   const carrier = asCarrier(value.carrier);
   const pop = typeof value.pop === "string" ? value.pop.trim().slice(0, 32) : "";
-  const ms =
-    value.ms === null ? null : typeof value.ms === "number" && Number.isFinite(value.ms) ? Math.max(0, Math.round(value.ms)) : undefined;
+  const ms = asProbeMs(value.ms);
+  let browserMs = asProbeMs(value.browserMs);
+  let serverMs = asProbeMs(value.serverMs);
   const probedAt = typeof value.probedAt === "string" ? value.probedAt.trim().slice(0, 40) : "";
+  const probeFrom = value.probeFrom === "browser" || value.probeFrom === "server" ? value.probeFrom : undefined;
+  if (browserMs === undefined && serverMs === undefined && ms !== undefined) {
+    if (probeFrom === "browser") browserMs = ms;
+    else serverMs = ms;
+  }
+  const effective = effectivePoolEntryMs({ ms, browserMs, serverMs });
   return {
     id: entryId(carrier, address, typeof value.id === "string" ? value.id : undefined),
     address,
     carrier,
     enabled: asEnabled(value),
     ...(pop ? { pop } : {}),
-    ...(ms !== undefined ? { ms } : {}),
+    ...(effective !== undefined ? { ms: effective } : {}),
+    ...(browserMs !== undefined ? { browserMs } : {}),
+    ...(serverMs !== undefined ? { serverMs } : {}),
     ...(probedAt ? { probedAt } : {}),
+    ...(probeFrom ? { probeFrom } : {}),
   };
 }
 
@@ -116,7 +155,7 @@ export function poolEntryAddresses(pool: CfPreferredPoolConfig | undefined): str
   if (!pool) return [];
   return pool.entries
     .filter((entry) => entry.enabled)
-    .sort((a, b) => (a.ms ?? 9_999) - (b.ms ?? 9_999))
+    .sort((a, b) => (effectivePoolEntryMs(a) ?? 9_999) - (effectivePoolEntryMs(b) ?? 9_999))
     .map((entry) => entry.address);
 }
 

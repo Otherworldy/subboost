@@ -2,6 +2,7 @@ import {
   activePoolAddresses,
   DEFAULT_CF_PREFERRED_POOL,
   normalizeCfPreferredPoolConfig,
+  withPoolEntryProbe,
 } from "@subboost/core/subscription/cf-preferred-pool";
 import { isCfPreferredApiUrl } from "@subboost/core/subscription/cf-preferred";
 import type { CfPreferredPoolConfig, CfPreferredPoolEntry } from "@subboost/core/types/config";
@@ -84,7 +85,7 @@ export async function probeCfPreferredPool(ownerId: string): Promise<CfPreferred
           }, null);
     if (ms === null) failed += 1;
     else ok += 1;
-    return { ...entry, ms, probedAt: now };
+    return withPoolEntryProbe(entry, "server", ms, now);
   });
 
   return saveCfPreferredPool(ownerId, {
@@ -94,7 +95,7 @@ export async function probeCfPreferredPool(ownerId: string): Promise<CfPreferred
       at: now,
       ok,
       failed,
-      message: `探活完成：${ok} 通 / ${failed} 失败`,
+      message: `服务器探活完成：${ok} 通 / ${failed} 失败`,
     },
   });
 }
@@ -112,7 +113,7 @@ export async function probeCfPreferredPoolEntry(
   const ms = ranked[0]?.ms ?? null;
   const now = new Date().toISOString();
   const updatedEntries = pool.entries.map((e) =>
-    e.id === target.id ? { ...e, ms, probedAt: now } : e,
+    e.id === target.id ? withPoolEntryProbe(e, "server", ms, now) : e,
   );
 
   return saveCfPreferredPool(ownerId, { ...pool, entries: updatedEntries });

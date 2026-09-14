@@ -253,8 +253,13 @@ export interface CfPreferredPoolEntry {
   carrier: CfPreferredCarrier;
   enabled: boolean;
   pop?: string;
+  /** 排序/兼容用：浏览器延迟优先，否则服务器 */
   ms?: number | null;
+  browserMs?: number | null;
+  serverMs?: number | null;
   probedAt?: string;
+  /** 最近一次延迟从哪测的：浏览器（打开网页的出口）或部署机 */
+  probeFrom?: "browser" | "server";
 }
 
 export interface CfPreferredPoolProbeLog {

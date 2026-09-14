@@ -1,12 +1,17 @@
 "use client";
 
 import * as React from "react";
-import { FileText, Plus, RefreshCw, Trash2, Zap } from "lucide-react";
+import { FileText, Plus, RefreshCw, Server, Trash2, Zap } from "lucide-react";
 import { isCfPreferredApiUrl } from "@subboost/core/subscription/cf-preferred";
 import {
   DEFAULT_CF_PREFERRED_POOL,
   parseCfPreferredBatchLines,
+  withPoolEntryProbe,
 } from "@subboost/core/subscription/cf-preferred-pool";
+import {
+  probeAddressFromBrowser,
+  probeAddressesFromBrowser,
+} from "./cf-preferred-browser-probe";
 import type {
   CfPreferredCarrier,
   CfPreferredMode,
@@ -78,7 +83,7 @@ export function CfPreferredPoolSurface({ adapter }: { adapter: CfPreferredPoolAd
   const [subscriptionCount, setSubscriptionCount] = React.useState(0);
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
-  const [probing, setProbing] = React.useState(false);
+  const [probing, setProbing] = React.useState<"browser" | "server" | null>(null);
   const [probingId, setProbingId] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [carrier, setCarrier] = React.useState<CarrierFilter>("all");
@@ -188,29 +193,78 @@ export function CfPreferredPoolSurface({ adapter }: { adapter: CfPreferredPoolAd
     });
   };
 
-  const handleProbe = async () => {
-    setProbing(true);
+  const busy = probing !== null || probingId !== null;
+
+  const handleBrowserProbeAll = async () => {
+    setProbing("browser");
+    setError(null);
+    try {
+      const now = new Date().toISOString();
+      if (pool.entries.length === 0) {
+        await persist({
+          ...pool,
+          lastProbe: { at: now, ok: 0, failed: 0, message: "入口池为空，跳过探活" },
+        });
+        toast({ title: "入口池为空，跳过探活", variant: "success" });
+        return;
+      }
+      const results = await probeAddressesFromBrowser(pool.entries.map((entry) => entry.address));
+      let ok = 0;
+      let failed = 0;
+      const entries = pool.entries.map((entry) => {
+        const ms = results.get(entry.address) ?? null;
+        if (ms == null) failed += 1;
+        else ok += 1;
+        return withPoolEntryProbe(entry, "browser", ms, now);
+      });
+      const next = await persist({
+        ...pool,
+        entries,
+        lastProbe: { at: now, ok, failed, message: `浏览器探活完成：${ok} 通 / ${failed} 失败` },
+      });
+      toast({ title: next.lastProbe?.message || "浏览器探活完成", variant: "success" });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "探活失败";
+      setError(message);
+    } finally {
+      setProbing(null);
+    }
+  };
+
+  const handleServerProbeAll = async () => {
+    setProbing("server");
     setError(null);
     try {
       const next = await adapter.probePool();
       setPool(next);
-      toast({ title: next.lastProbe?.message || "探活完成", variant: "success" });
+      toast({ title: next.lastProbe?.message || "服务器探活完成", variant: "success" });
     } catch (err) {
       const message = err instanceof Error ? err.message : "探活失败";
       setError(message);
       toast({ title: message, variant: "destructive" });
     } finally {
-      setProbing(false);
+      setProbing(null);
     }
   };
 
   const handleSingleProbe = async (entryId: string) => {
+    const entry = pool.entries.find((item) => item.id === entryId);
+    if (!entry) return;
     setProbingId(entryId);
     setError(null);
     try {
-      const next = await adapter.probePool(entryId);
-      setPool(next);
-      toast({ title: "单节点测速完成", variant: "success" });
+      const ms = await probeAddressFromBrowser(entry.address);
+      const now = new Date().toISOString();
+      await persist({
+        ...pool,
+        entries: pool.entries.map((item) =>
+          item.id === entryId ? withPoolEntryProbe(item, "browser", ms, now) : item,
+        ),
+      });
+      toast({
+        title: ms == null ? "该入口浏览器测速超时" : "单节点测速完成",
+        variant: ms == null ? "destructive" : "success",
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : "测速失败";
       setError(message);
@@ -234,14 +288,20 @@ export function CfPreferredPoolSurface({ adapter }: { adapter: CfPreferredPoolAd
         const added: CfPreferredPoolEntry[] = [];
         for (const ip of ips) {
           if (existing.has(ip)) continue;
-          added.push({
-            id: `cfp-${draft.carrier}-${ip.replace(/[^a-zA-Z0-9]+/g, "-")}`,
-            address: ip,
-            carrier: draft.carrier,
-            enabled: true,
-            ...(draft.pop.trim() ? { pop: draft.pop.trim() } : {}),
-            ms: candidates.find((c) => c.ip === ip)?.ms ?? null,
-          });
+          added.push(
+            withPoolEntryProbe(
+              {
+                id: `cfp-${draft.carrier}-${ip.replace(/[^a-zA-Z0-9]+/g, "-")}`,
+                address: ip,
+                carrier: draft.carrier,
+                enabled: true,
+                ...(draft.pop.trim() ? { pop: draft.pop.trim() } : {}),
+              },
+              "server",
+              candidates.find((c) => c.ip === ip)?.ms ?? null,
+              new Date().toISOString(),
+            ),
+          );
           existing.add(ip);
         }
         await persist({ ...pool, entries: [...pool.entries, ...added] });
@@ -254,7 +314,10 @@ export function CfPreferredPoolSurface({ adapter }: { adapter: CfPreferredPoolAd
           enabled: existing?.enabled ?? true,
           ...(draft.pop.trim() ? { pop: draft.pop.trim() } : {}),
           ...(existing?.ms !== undefined ? { ms: existing.ms } : {}),
+          ...(existing?.browserMs !== undefined ? { browserMs: existing.browserMs } : {}),
+          ...(existing?.serverMs !== undefined ? { serverMs: existing.serverMs } : {}),
           ...(existing?.probedAt ? { probedAt: existing.probedAt } : {}),
+          ...(existing?.probeFrom ? { probeFrom: existing.probeFrom } : {}),
         };
         await upsertEntry(entry);
       }
@@ -279,7 +342,7 @@ export function CfPreferredPoolSurface({ adapter }: { adapter: CfPreferredPoolAd
             </Badge>
           </div>
           <p className="mt-1 text-sm text-white/50">
-            统一维护一份优选 IP 列表，测速后注入所有订阅。
+            统一维护一份优选 IP 列表。探活默认从当前浏览器出发，延迟会参与注入排序。
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -292,9 +355,25 @@ export function CfPreferredPoolSurface({ adapter }: { adapter: CfPreferredPoolAd
               aria-label="开启平台级 CF 入口池"
             />
           </div>
-          <Button variant="outline" size="sm" disabled={loading || probing} onClick={() => void handleProbe()}>
-            <RefreshCw className={cn("h-3.5 w-3.5", probing && "animate-spin")} />
-            {probing ? "全网探活中..." : "立即全网探活"}
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={loading || busy}
+            onClick={() => void handleBrowserProbeAll()}
+            title="从当前浏览器测各入口的 TCP/TLS，不是协议握手"
+          >
+            <RefreshCw className={cn("h-3.5 w-3.5", probing === "browser" && "animate-spin")} />
+            {probing === "browser" ? "浏览器探活中..." : "浏览器探活"}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={loading || busy}
+            onClick={() => void handleServerProbeAll()}
+            title="从部署机 TCPing 443"
+          >
+            <Server className={cn("h-3.5 w-3.5", probing === "server" && "animate-spin")} />
+            {probing === "server" ? "服务器探活中..." : "服务器探活"}
           </Button>
           <Button
             variant="outline"
@@ -323,7 +402,7 @@ export function CfPreferredPoolSurface({ adapter }: { adapter: CfPreferredPoolAd
       </div>
 
       <div className="rounded-xl border border-indigo-500/20 bg-indigo-950/20 p-4 text-xs leading-relaxed text-white/70">
-        开启后，已启用的入口会注入所有订阅的套 CF 节点。源上勾选的入口仍可单独覆盖。
+        开启后，已启用的入口会注入所有订阅的套 CF 节点。源上勾选的入口仍可单独覆盖。浏览器探活测的是打开本页的出口到 IP:443，服务器探活仍是部署机 TCPing。
       </div>
 
       {error && <p className="text-xs text-red-300">{error}</p>}
@@ -389,11 +468,8 @@ export function CfPreferredPoolSurface({ adapter }: { adapter: CfPreferredPoolAd
                     <td className={cn("px-4 py-3", CARRIER_TONE[entry.carrier])}>{CF_PREFERRED_CARRIER_LABELS[entry.carrier]}</td>
                     <td className="px-4 py-3 text-white/50">{entry.pop || "—"}</td>
                     <td className="px-4 py-3 font-mono">
-                      {entry.ms == null ? (
-                        <span className="text-white/30">未测</span>
-                      ) : (
-                        <span className={entry.ms < 150 ? "text-emerald-400" : "text-white/70"}>{entry.ms}ms</span>
-                      )}
+                      <ProbeMs label="浏览器" ms={entry.browserMs} />
+                      <ProbeMs label="服务器" ms={entry.serverMs} />
                     </td>
                     <td className="px-4 py-3">
                       <Switch
@@ -408,9 +484,9 @@ export function CfPreferredPoolSurface({ adapter }: { adapter: CfPreferredPoolAd
                         <Button
                           variant="ghost"
                           size="sm"
-                          disabled={probing || probingId === entry.id}
+                          disabled={busy}
                           onClick={() => void handleSingleProbe(entry.id)}
-                          title="对该入口单独测速"
+                          title="从当前浏览器测该入口的 TCP/TLS"
                         >
                           <RefreshCw className={cn("h-3.5 w-3.5", probingId === entry.id && "animate-spin text-amber-300")} />
                           {probingId === entry.id ? "测速中" : "测速"}
@@ -469,7 +545,7 @@ export function CfPreferredPoolSurface({ adapter }: { adapter: CfPreferredPoolAd
               <Zap className="h-4 w-4 text-amber-300" />
             </div>
             <p className="text-xs text-white/50">{pool.lastProbe?.at ? new Date(pool.lastProbe.at).toLocaleString() : "尚无记录"}</p>
-            <p className="text-xs text-white/70">{pool.lastProbe?.message || "点击「立即全网探活」对池内入口做 TCPing 443。"}</p>
+            <p className="text-xs text-white/70">{pool.lastProbe?.message || "点击「浏览器探活」从当前网页出口测 TCP/TLS；「服务器探活」从部署机 TCPing 443。"}</p>
           </CardContent>
         </Card>
       </div>
@@ -583,6 +659,18 @@ export function CfPreferredPoolSurface({ adapter }: { adapter: CfPreferredPoolAd
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function ProbeMs({ label, ms }: { label: string; ms: number | null | undefined }) {
+  const text = ms === undefined ? "未测" : ms === null ? "不通" : `${ms}ms`;
+  const tone =
+    typeof ms === "number" ? (ms < 150 ? "text-emerald-400" : "text-white/70") : "text-white/30";
+  return (
+    <div className="flex items-baseline gap-1.5 leading-5">
+      <span className="w-10 shrink-0 font-sans text-[10px] text-white/35">{label}</span>
+      <span className={tone}>{text}</span>
     </div>
   );
 }

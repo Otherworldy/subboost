@@ -75,8 +75,20 @@ describe("local cf preferred pool", () => {
     ]);
 
     const probed = await probeCfPreferredPool("admin-1");
-    expect(probed.entries[0]).toMatchObject({ address: "1.1.1.1", enabled: true, ms: null });
-    expect(probed.entries[1]).toMatchObject({ address: "2.2.2.2", enabled: false, ms: 120 });
-    expect(probed.lastProbe).toMatchObject({ ok: 1, failed: 1 });
+    expect(probed.entries[0]).toMatchObject({
+      address: "1.1.1.1",
+      enabled: true,
+      ms: null,
+      serverMs: null,
+      probeFrom: "server",
+    });
+    expect(probed.entries[1]).toMatchObject({
+      address: "2.2.2.2",
+      enabled: false,
+      ms: 120,
+      serverMs: 120,
+      probeFrom: "server",
+    });
+    expect(probed.lastProbe).toMatchObject({ ok: 1, failed: 1, message: "服务器探活完成：1 通 / 1 失败" });
   });
 });

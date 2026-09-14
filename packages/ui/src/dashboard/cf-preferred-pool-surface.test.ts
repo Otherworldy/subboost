@@ -23,7 +23,8 @@ describe("CfPreferredPoolSurface", () => {
   it("renders platform pool heading and actions", () => {
     const html = renderToStaticMarkup(React.createElement(CfPreferredPoolSurface, { adapter: adapter() }));
     expect(html).toContain("Cloudflare 平台级入口加速");
-    expect(html).toContain("立即全网探活");
+    expect(html).toContain("浏览器探活");
+    expect(html).toContain("服务器探活");
     expect(html).toContain("新增入口");
     expect(html).toContain("三网优化");
     expect(html).toContain("中国电信");

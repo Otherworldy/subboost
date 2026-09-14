@@ -2,10 +2,12 @@
 
 import * as React from "react";
 import {
+  Globe,
   Loader2,
-  Rocket,
+  Server,
   Trash2,
   Zap,
+  type LucideIcon,
 } from "lucide-react";
 import {
   normalizeCfPreferredAddresses,
@@ -30,17 +32,29 @@ import { Button } from "@subboost/ui/components/ui/button";
 import { HelpPopover } from "@subboost/ui/components/ui/popover";
 import { Switch } from "@subboost/ui/components/ui/switch";
 import { Textarea } from "@subboost/ui/components/ui/textarea";
+import {
+  probeAddressFromBrowser,
+  probeAddressesFromBrowser,
+} from "@subboost/ui/dashboard/cf-preferred-browser-probe";
 import { cn } from "@subboost/ui/lib/utils";
 import { useConfigStore, type SubscriptionSource } from "@subboost/ui/store/config-store";
 import { defaultCfPreferredConfig } from "./source-cf-preferred-controls";
 
-type ProbeStatus = {
-  loading: boolean;
+type ProbeKind = "browser" | "server" | "handshake";
+type ProbeSlot = {
+  loading?: boolean;
   ms?: number | null;
   ok?: number;
   total?: number;
   error?: string | null;
 };
+type ProbeRow = Partial<Record<ProbeKind, ProbeSlot>>;
+
+const PROBE_KINDS: { kind: ProbeKind; label: string; title: string; icon: LucideIcon }[] = [
+  { kind: "browser", label: "浏览", title: "浏览器测速：从当前浏览器测 TCP/TLS", icon: Globe },
+  { kind: "server", label: "服务", title: "服务器测速：从部署机 TCPing 443", icon: Server },
+  { kind: "handshake", label: "握手", title: "真实握手测速：用该 IP 替换节点后测协议延迟", icon: Zap },
+];
 
 const SAMPLE_BATCH_TEXT = `104.17.152.57#CF 电信优选
 8.35.211.74#CF 电信优选
@@ -48,6 +62,141 @@ const SAMPLE_BATCH_TEXT = `104.17.152.57#CF 电信优选
 188.164.248.186#CF 电信优选
 172.66.2.44#CF 电信优选
 8.35.211.40#CF 电信优选`;
+
+async function probeAddressFromServer(address: string): Promise<number | null> {
+  const response = await fetch("/api/cf-preferred/pool", {
+    method: "POST",
+    cache: "no-store",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "resolve", address }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(typeof data?.error === "string" ? data.error : "测速失败");
+  }
+  const candidates = Array.isArray(data?.candidates) ? data.candidates : [];
+  let best: number | null = null;
+  for (const item of candidates) {
+    if (!item || typeof item !== "object") continue;
+    const ms = (item as { ms?: unknown }).ms;
+    if (typeof ms === "number" && Number.isFinite(ms) && (best === null || ms < best)) best = Math.round(ms);
+  }
+  return best;
+}
+
+function KindMs({
+  label,
+  slot,
+  fallback,
+}: {
+  label: string;
+  slot?: ProbeSlot;
+  fallback?: number | null;
+}) {
+  let value: string;
+  let tone = "text-[11px] text-white/30";
+  if (slot?.loading) {
+    value = "测速中";
+    tone = "text-[11px] text-amber-300 animate-pulse";
+  } else if (slot?.error) {
+    value = "失败";
+    tone = "text-[11px] text-rose-300";
+  } else {
+    const ms = slot && slot.ms !== undefined ? slot.ms : fallback;
+    value = ms === undefined ? "未测" : ms === null ? "不通" : `${ms}ms`;
+    tone =
+      typeof ms === "number"
+        ? ms < 150
+          ? "text-[11px] text-emerald-400"
+          : "text-[11px] text-white/70"
+        : "text-[11px] text-white/30";
+  }
+  return (
+    <div className="flex items-baseline justify-end gap-1 leading-4" title={slot?.error ?? undefined}>
+      <span className="font-sans text-[11px] text-white/40">{label}</span>
+      <span className={tone}>{value}</span>
+      {typeof slot?.ok === "number" && typeof slot.total === "number" ? (
+        <span className="font-sans text-[11px] text-white/35">
+          {slot.ok}/{slot.total}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function LineProbePanel({
+  address,
+  probe,
+  fallbackBrowser,
+  fallbackServer,
+  onProbe,
+}: {
+  address: string;
+  probe?: ProbeRow;
+  fallbackBrowser?: number | null;
+  fallbackServer?: number | null;
+  onProbe: (kind: ProbeKind, address: string) => void;
+}) {
+  return (
+    <div className="flex items-center gap-2 shrink-0">
+      <div className="flex items-baseline gap-3 font-mono">
+        <KindMs label="浏览" slot={probe?.browser} fallback={fallbackBrowser} />
+        <KindMs label="服务" slot={probe?.server} fallback={fallbackServer} />
+        <KindMs label="握手" slot={probe?.handshake} />
+      </div>
+      <div className="flex items-center gap-0.5">
+        {PROBE_KINDS.map(({ kind, title, icon: Icon }) => (
+          <Button
+            key={kind}
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={probe?.[kind]?.loading}
+            className="h-6 w-6 p-0 border-white/15 bg-white/5 hover:bg-amber-500/20 hover:border-amber-500/40 hover:text-amber-200 text-white/70"
+            onClick={() => onProbe(kind, address)}
+            title={title}
+            aria-label={title}
+          >
+            {probe?.[kind]?.loading ? (
+              <Loader2 className="h-3 w-3 animate-spin text-amber-300" />
+            ) : (
+              <Icon className="h-3 w-3" />
+            )}
+          </Button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ProbeBatchButtons({
+  disabled,
+  onProbe,
+}: {
+  disabled?: boolean;
+  onProbe: (kind: ProbeKind) => void;
+}) {
+  return (
+    <div className="flex items-center gap-0.5">
+      <span className="mr-0.5 text-[10px] text-white/40">测速</span>
+      {PROBE_KINDS.map(({ kind, title, icon: Icon }) => (
+        <Button
+          key={kind}
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={disabled}
+          className="h-6 w-6 p-0 border-amber-500/40 bg-amber-500/15 text-amber-200 hover:bg-amber-500/25"
+          onClick={() => onProbe(kind)}
+          title={title}
+          aria-label={title}
+        >
+          <Icon className="h-3 w-3" />
+        </Button>
+      ))}
+    </div>
+  );
+}
 
 /** explicit=false 且 selected 为空时继承 implicitAll；explicit 时空数组就是全不选 */
 export function effectiveCfPreferredSelection(
@@ -132,7 +281,7 @@ export function CfPreferredSettings({
   const [loadingPool, setLoadingPool] = React.useState(false);
 
   // 单线测速状态记录 key: address
-  const [probeMap, setProbeMap] = React.useState<Record<string, ProbeStatus>>({});
+  const [probeMap, setProbeMap] = React.useState<Record<string, ProbeRow>>({});
 
   // 自定义批量解析文本框
   const [rawBatchText, setRawBatchText] = React.useState(config?.rawCustomText ?? "");
@@ -168,16 +317,40 @@ export function CfPreferredSettings({
     });
   };
 
-  // 真实节点替换单线测速
-  async function runSingleProbe(targetAddress: string) {
-    const addr = targetAddress.trim();
-    if (!addr) return;
-
+  const setSlot = (addr: string, kind: ProbeKind, slot: ProbeSlot) => {
     setProbeMap((prev) => ({
       ...prev,
-      [addr]: { loading: true },
+      [addr]: { ...prev[addr], [kind]: slot },
     }));
+  };
 
+  async function runBrowserProbe(targetAddress: string) {
+    const addr = targetAddress.trim();
+    if (!addr) return;
+    setSlot(addr, "browser", { loading: true });
+    const ms = await probeAddressFromBrowser(addr);
+    setSlot(addr, "browser", { loading: false, ms });
+  }
+
+  async function runServerProbe(targetAddress: string) {
+    const addr = targetAddress.trim();
+    if (!addr) return;
+    setSlot(addr, "server", { loading: true });
+    try {
+      const ms = await probeAddressFromServer(addr);
+      setSlot(addr, "server", { loading: false, ms });
+    } catch (err) {
+      setSlot(addr, "server", {
+        loading: false,
+        error: err instanceof Error ? err.message : "测速失败",
+      });
+    }
+  }
+
+  async function runHandshakeProbe(targetAddress: string) {
+    const addr = targetAddress.trim();
+    if (!addr) return;
+    setSlot(addr, "handshake", { loading: true });
     try {
       const sourceNodes = useConfigStore
         .getState()
@@ -202,24 +375,50 @@ export function CfPreferredSettings({
       }
 
       const candidate = Array.isArray(data?.candidates) ? data.candidates[0] : null;
-      setProbeMap((prev) => ({
-        ...prev,
-        [addr]: {
-          loading: false,
-          ms: candidate ? candidate.ms : null,
-          ok: candidate?.ok,
-          total: candidate?.nodes?.length ?? 0,
-        },
-      }));
+      setSlot(addr, "handshake", {
+        loading: false,
+        ms: candidate ? candidate.ms : null,
+        ok: candidate?.ok,
+        total: candidate?.nodes?.length ?? 0,
+      });
     } catch (err) {
-      setProbeMap((prev) => ({
-        ...prev,
-        [addr]: {
-          loading: false,
-          error: err instanceof Error ? err.message : "测速失败",
-        },
-      }));
+      setSlot(addr, "handshake", {
+        loading: false,
+        error: err instanceof Error ? err.message : "测速失败",
+      });
     }
+  }
+
+  function runProbe(kind: ProbeKind, address: string) {
+    if (kind === "browser") void runBrowserProbe(address);
+    else if (kind === "server") void runServerProbe(address);
+    else void runHandshakeProbe(address);
+  }
+
+  async function runBatchProbe(kind: ProbeKind, addresses: string[]) {
+    const addrs = addresses.map((item) => item.trim()).filter(Boolean);
+    if (addrs.length === 0) return;
+    if (kind === "browser") {
+      for (const addr of addrs) setSlot(addr, "browser", { loading: true });
+      const results = await probeAddressesFromBrowser(addrs);
+      for (const addr of addrs) setSlot(addr, "browser", { loading: false, ms: results.get(addr) ?? null });
+      return;
+    }
+    if (kind === "handshake") {
+      addrs.forEach((addr, i) => {
+        setTimeout(() => void runHandshakeProbe(addr), i * 180);
+      });
+      return;
+    }
+    let cursor = 0;
+    const workers = Array.from({ length: Math.min(8, addrs.length) }, async () => {
+      while (cursor < addrs.length) {
+        const index = cursor;
+        cursor += 1;
+        await runServerProbe(addrs[index]);
+      }
+    });
+    await Promise.all(workers);
   }
 
   // 批量文本解析追加到自定义列表
@@ -323,19 +522,7 @@ export function CfPreferredSettings({
     });
   };
 
-  // 一键测速所有已勾选的平台池线路
-  const handleBatchProbePlatform = () => {
-    platformSelected.forEach((addr, i) => {
-      setTimeout(() => void runSingleProbe(addr), i * 180);
-    });
-  };
 
-  // 一键测速所有自定义线路
-  const handleBatchProbeCustom = () => {
-    customLines.forEach((item, i) => {
-      setTimeout(() => void runSingleProbe(item.address), i * 180);
-    });
-  };
 
   const isPlatformActive = platformPool?.enabled === true;
 
@@ -390,7 +577,7 @@ export function CfPreferredSettings({
             </p>
             <div className="space-y-1.5 rounded-lg bg-white/5 p-2.5 text-[11px] text-white/60">
               <p>• <strong className="text-white/85">继承平台入口池：</strong>统一继承平台在 <code className="font-mono text-amber-300">/dashboard/cf</code> 维护的高质量入口，免去每个源手工维护的繁琐。</p>
-              <p>• <strong className="text-white/85">真实节点测速：</strong>每条线路点击「测速」，将直接用该 IP 替换当前源节点并测试真实握手与连通率，并非虚假的 TCP ping。</p>
+              <p>• <strong className="text-white/85">三种测速：</strong>「浏览」从当前网页出口测 TCP/TLS；「服务」从部署机 TCPing 443；「握手」用该 IP 替换当前源节点做真实协议测活。</p>
               <p>• <strong className="text-white/85">单源专属覆盖：</strong>支持直接粘贴批量文本（一行一个，支持 <code className="font-mono text-amber-300">IP#备注</code>），自动识别归类线路。</p>
             </div>
           </HelpPopover>
@@ -481,16 +668,10 @@ export function CfPreferredSettings({
                   </a>
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-6 px-2 text-[11px] border-amber-500/40 bg-amber-500/15 text-amber-200 hover:bg-amber-500/25 gap-1"
-                    onClick={handleBatchProbePlatform}
-                  >
-                    <Rocket className="h-3 w-3 text-amber-300" />
-                    测速已选
-                  </Button>
+                  <ProbeBatchButtons
+                    disabled={platformSelected.length === 0}
+                    onProbe={(kind) => void runBatchProbe(kind, platformSelected)}
+                  />
                   <Button
                     type="button"
                     variant="ghost"
@@ -551,7 +732,7 @@ export function CfPreferredSettings({
                               <div
                                 key={entry.id}
                                 className={cn(
-                                  "flex items-center justify-between gap-2 rounded-md px-2 py-1 transition",
+                                  "flex flex-wrap items-center justify-between gap-2 rounded-md px-2 py-1 transition",
                                   isChecked
                                     ? "bg-amber-500/[0.08]"
                                     : "hover:bg-white/[0.03]",
@@ -573,49 +754,13 @@ export function CfPreferredSettings({
                                   ) : null}
                                 </label>
 
-                                <div className="flex items-center gap-2.5 shrink-0">
-                                  {/* 测速结果显示 */}
-                                  <div className="text-right font-mono text-xs">
-                                    {probe?.loading ? (
-                                      <span className="text-[10px] text-amber-300 animate-pulse">测速中...</span>
-                                    ) : probe?.ms !== undefined ? (
-                                      probe.ms === null ? (
-                                        <span className="text-rose-300 text-[10px]">失败</span>
-                                      ) : (
-                                        <div>
-                                          <span className="font-semibold text-emerald-400">{probe.ms}ms</span>
-                                          {typeof probe.ok === "number" && (
-                                            <div className="text-[9px] text-white/40 font-sans">
-                                              {probe.ok}/{probe.total}通
-                                            </div>
-                                          )}
-                                        </div>
-                                      )
-                                    ) : entry.ms !== undefined ? (
-                                      <span className="text-white/50 text-[11px]">{entry.ms}ms</span>
-                                    ) : (
-                                      <span className="text-white/25 text-[10px]">未测</span>
-                                    )}
-                                  </div>
-
-                                  {/* 单线路真实测速按钮 */}
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    disabled={probe?.loading}
-                                    className="h-6 px-2 text-[10px] border-white/15 bg-white/5 hover:bg-amber-500/20 hover:border-amber-500/40 hover:text-amber-200 text-white/70 gap-1"
-                                    onClick={() => void runSingleProbe(entry.address)}
-                                    title="真实替换该源节点后进行延迟测试"
-                                  >
-                                    {probe?.loading ? (
-                                      <Loader2 className="h-2.5 w-2.5 animate-spin text-amber-300" />
-                                    ) : (
-                                      <Rocket className="h-2.5 w-2.5 text-amber-400" />
-                                    )}
-                                    <span>测速</span>
-                                  </Button>
-                                </div>
+                                <LineProbePanel
+                                  address={entry.address}
+                                  probe={probe}
+                                  fallbackBrowser={entry.browserMs}
+                                  fallbackServer={entry.serverMs}
+                                  onProbe={runProbe}
+                                />
                               </div>
                             );
                           })}
@@ -700,17 +845,10 @@ export function CfPreferredSettings({
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
+                    <ProbeBatchButtons
                       disabled={customLines.length === 0}
-                      className="h-6 px-2 text-[11px] border-amber-500/40 bg-amber-500/15 text-amber-200 hover:bg-amber-500/25 gap-1"
-                      onClick={handleBatchProbeCustom}
-                    >
-                      <Rocket className="h-3 w-3 text-amber-300" />
-                      <span>一键测速全部</span>
-                    </Button>
+                      onProbe={(kind) => void runBatchProbe(kind, customLines.map((item) => item.address))}
+                    />
                     <Button
                       type="button"
                       variant="ghost"
@@ -735,7 +873,7 @@ export function CfPreferredSettings({
                       <div
                         key={item.address}
                         className={cn(
-                          "flex items-center justify-between gap-2 rounded-md px-2 py-1 transition",
+                          "flex flex-wrap items-center justify-between gap-2 rounded-md px-2 py-1 transition",
                           isChecked ? "bg-amber-500/[0.08]" : "hover:bg-white/[0.03]",
                         )}
                       >
@@ -755,46 +893,8 @@ export function CfPreferredSettings({
                           ) : null}
                         </label>
 
-                        <div className="flex items-center gap-2.5 shrink-0">
-                          {/* 测速结果显示 */}
-                          <div className="text-right font-mono text-xs">
-                            {probe?.loading ? (
-                              <span className="text-[10px] text-amber-300 animate-pulse">测速中...</span>
-                            ) : probe?.ms !== undefined ? (
-                              probe.ms === null ? (
-                                <span className="text-rose-300 text-[10px]">失败</span>
-                              ) : (
-                                <div>
-                                  <span className="font-semibold text-emerald-400">{probe.ms}ms</span>
-                                  {typeof probe.ok === "number" && (
-                                    <div className="text-[9px] text-white/40 font-sans">
-                                      {probe.ok}/{probe.total}通
-                                    </div>
-                                  )}
-                                </div>
-                              )
-                            ) : (
-                              <span className="text-white/25 text-[10px]">未测</span>
-                            )}
-                          </div>
-
-                          {/* 单线测速按钮 */}
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            disabled={probe?.loading}
-                            className="h-6 px-2 text-[10px] border-white/15 bg-white/5 hover:bg-amber-500/20 hover:border-amber-500/40 hover:text-amber-200 text-white/70 gap-1"
-                            onClick={() => void runSingleProbe(item.address)}
-                            title="真实替换该源节点后进行延迟测试"
-                          >
-                            {probe?.loading ? (
-                              <Loader2 className="h-2.5 w-2.5 animate-spin text-amber-300" />
-                            ) : (
-                              <Rocket className="h-2.5 w-2.5 text-amber-400" />
-                            )}
-                            <span>测速</span>
-                          </Button>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <LineProbePanel address={item.address} probe={probe} onProbe={runProbe} />
 
                           {/* 删除条目按钮 */}
                           <Button

@@ -51,6 +51,9 @@ describe("CfPreferredSettings", () => {
     expect(html).toContain("已选");
     expect(html).toContain("全选");
     expect(html).toContain("全不选");
+    expect(html).toContain("浏览");
+    expect(html).toContain("服务");
+    expect(html).toContain("握手");
   });
 
   it("勾选从继承列表中只改当前项，不会塌成单选", () => {
@@ -92,5 +95,8 @@ describe("CfPreferredSettings", () => {
     expect(html).toContain("批量添加线路 IP");
     expect(html).toContain("104.17.152.57");
     expect(html).toContain("CF 电信优选");
+    expect(html).toContain("浏览");
+    expect(html).toContain("服务");
+    expect(html).toContain("握手");
   });
 });
